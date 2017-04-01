@@ -2,7 +2,7 @@
 # @Author: amaneureka
 # @Date:   2017-04-01 16:07:30
 # @Last Modified by:   amaneureka
-# @Last Modified time: 2017-04-01 21:39:13
+# @Last Modified time: 2017-04-01 22:26:04
 
 import sys
 import uuid
@@ -44,18 +44,19 @@ def register_new_device(connection, key):
 
     t = (key, )
     cursor.execute('INSERT INTO clients (key) VALUES (?)', t)
+    connection.commit()
 
 def get_device_id_from_key(connection, key):
     cursor = connection.cursor()
 
     t = (key, )
     row = cursor.execute('SELECT id FROM clients WHERE key=?', t)
-    return row[0]
+    return row.fetchone()[0]
 
 def setup_database(connection):
     cursor = connection.cursor()
 
-    t = (hashlib.md5('root').hexdigest(), )
+    t = (str(uuid.uuid4()), )
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS clients
         (
@@ -133,13 +134,13 @@ def start_server():
 
                     if header == REQUEST.REGISTER:
 
-                        key = uuid.uuid4()
+                        key = str(uuid.uuid4())
                         register_new_device(sql_connection, key)
                         send_request(sock, REQUEST.UID, key)
 
                     elif header == REQUEST.LOGIN:
 
-                        key = data[3:]
+                        key = data[3:].strip()
                         logging.debug('\tkey \'%s\'', key)
 
                         device_id = get_device_id_from_key(sql_connection, key)
@@ -173,10 +174,12 @@ def start_server():
                             ID_2_SOCKET[request_id].send(cmd)
 
                     else:
+                        if sock in SOCKET_LIST:
+                            SOCKET_LIST.remove(sock)
                         raise ValueError('Invalid Header')
 
                 except Exception as error:
-                    logging.debug(str(error))
+                    logging.error(str(error))
 
     server_socket.close()
 

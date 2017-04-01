@@ -2,7 +2,7 @@
 # @Author: amaneureka
 # @Date:   2017-04-01 22:39:50
 # @Last Modified by:   amaneureka
-# @Last Modified time: 2017-04-01 22:53:55
+# @Last Modified time: 2017-04-01 23:10:46
 
 import sys
 import socket
@@ -27,8 +27,9 @@ def start_client():
 
     print 'Server Connected :)'
 
+    SOCKET_LIST = [sys.stdin, s]
+
     while True:
-        SOCKET_LIST = [sys.stdin, s]
 
         ready_to_read, _, _ = select.select(SOCKET_LIST, [], [])
 

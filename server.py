@@ -2,7 +2,7 @@
 # @Author: amaneureka
 # @Date:   2017-04-01 16:07:30
 # @Last Modified by:   amaneureka
-# @Last Modified time: 2017-04-01 20:28:29
+# @Last Modified time: 2017-04-01 21:39:13
 
 import sys
 import uuid
@@ -52,6 +52,22 @@ def get_device_id_from_key(connection, key):
     row = cursor.execute('SELECT id FROM clients WHERE key=?', t)
     return row[0]
 
+def setup_database(connection):
+    cursor = connection.cursor()
+
+    t = (hashlib.md5('root').hexdigest(), )
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS clients
+        (
+            id INTEGER primary key NOT NULL,
+            key VARCHAR
+        );''');
+    try:
+        cursor.execute('INSERT INTO clients (id, key) VALUES (0, ?);', t)
+    except:
+        pass
+    connection.commit()
+
 def start_server():
 
     server_config = config['Server']
@@ -69,6 +85,7 @@ def start_server():
 
     # server database setup
     sql_connection = sql.connect(server_config['DATABASE'])
+    setup_database(sql_connection)
 
     LABEL_2_ID = { }
     ID_2_SOCKET = { }
@@ -168,5 +185,3 @@ if __name__ == '__main__':
     config.read('config.ini')
     logging.basicConfig(stream=sys.stderr, level=logging.DEBUG)
     sys.exit(start_server())
-
-

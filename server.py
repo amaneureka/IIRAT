@@ -2,7 +2,7 @@
 # @Author: amaneureka
 # @Date:   2017-04-01 16:07:30
 # @Last Modified by:   amaneureka
-# @Last Modified time: 2017-04-01 20:22:39
+# @Last Modified time: 2017-04-01 20:28:29
 
 import sys
 import uuid
@@ -73,6 +73,8 @@ def start_server():
     LABEL_2_ID = { }
     ID_2_SOCKET = { }
     SOCKET_LIST = []
+
+    SOCKET_LIST.append(server_socket)
 
     logging.info('server started %s:%d', HOST, PORT)
 

@@ -2,16 +2,44 @@
 * @Author: amaneureka
 * @Date:   2017-04-02 03:33:49
 * @Last Modified by:   amaneureka
-* @Last Modified time: 2017-04-02 14:15:14
+* @Last Modified time: 2017-04-02 16:06:43
 */
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
-#include <sys/types.h>
-#include <arpa/inet.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
+#include <iostream>
+
+#if __WIN__
+
+    /* g++ -std=c++11 iirat.cpp -D__WIN__ -lws2_32 */
+
+    /* supporting win 7 or later only */
+    #define WINVER _WIN32_WINNT_WIN7
+    #define _WIN32_WINNT _WIN32_WINNT_WIN7
+
+    #include <winsock2.h>
+    #include <w32api/ws2tcpip.h>
+
+    /* simple POSIX to windows translation */
+    #define read(soc, buf, len) recv(soc, buf, len, MSG_OOB)
+    #define write(soc, buf, len) send(soc, buf, len, MSG_OOB)
+
+#elif __LINUX__
+
+    /* g++ -std=c++11 iirat.cpp -D__LINUX__ */
+
+    #include <unistd.h>
+    #include <sys/types.h>
+    #include <arpa/inet.h>
+    #include <sys/socket.h>
+    #include <netinet/in.h>
+
+#else
+
+    'You forget to define platform'
+
+#endif
+
 
 using namespace std;
 
@@ -24,8 +52,26 @@ int main(int argc, char *argv[])
     struct sockaddr_in addr;
     fd_set active_fd_set, read_fd_set;
 
+    #if __WIN__
+
+        WSADATA wsa;
+
+        /* windows socket needs initialization */
+        if (WSAStartup(MAKEWORD(2,2),&wsa) != 0)
+        {
+            printf("initialization failed\n");
+            exit(0);
+        }
+
+    #endif
+
     /* create socket */
     sock = socket(AF_INET , SOCK_STREAM , 0);
+    if (sock < 0)
+    {
+        printf("could not create socket\n");
+        exit(0);
+    }
 
     /* configurations */
     addr.sin_family = AF_INET;
@@ -81,6 +127,7 @@ int main(int argc, char *argv[])
                     if ((len = getline(&line, &size, stdin)) <= 0)
                         continue;
                     line[len - 1] = '\0';
+
                     write(sock, line, len - 1);
                 }
             }

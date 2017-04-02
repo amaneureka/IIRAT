@@ -2,7 +2,7 @@
 # @Author: amaneureka
 # @Date:   2017-04-01 16:07:30
 # @Last Modified by:   amaneureka
-# @Last Modified time: 2017-04-01 22:26:04
+# @Last Modified time: 2017-04-02 16:08:33
 
 import sys
 import uuid
@@ -179,6 +179,8 @@ def start_server():
                         raise ValueError('Invalid Header')
 
                 except Exception as error:
+                    if sock in SOCKET_LIST:
+                        SOCKET_LIST.remove(sock)
                     logging.error(str(error))
 
     server_socket.close()

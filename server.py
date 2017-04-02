@@ -2,7 +2,7 @@
 # @Author: amaneureka
 # @Date:   2017-04-01 16:07:30
 # @Last Modified by:   amaneureka
-# @Last Modified time: 2017-04-02 16:08:33
+# @Last Modified time: 2017-04-02 19:52:45
 
 import sys
 import uuid
@@ -27,6 +27,7 @@ class REQUEST(Enum):
     HELLO       = 'HLO' # S2C : Hello! login successful
     COMMAND     = 'CMD' # S2C : Execute Command
     RESPONSE    = 'RSP' # C2S : Response of Command
+    SAVE        = 'SAV' # C2S : Save Response
 
 def get_request_header(data):
     try:
@@ -62,6 +63,13 @@ def setup_database(connection):
         (
             id INTEGER primary key NOT NULL,
             key VARCHAR
+        );''');
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS logs
+        (
+            id INTEGER primary key NOT NULL,
+            client_id INTEGER,
+            response VARCHAR
         );''');
     try:
         cursor.execute('INSERT INTO clients (id, key) VALUES (0, ?);', t)
@@ -161,6 +169,21 @@ def start_server():
                             if 0 in ID_2_SOCKET[0]:
                                 ID_2_SOCKET[0].close()
                                 ID_2_SOCKET.pop(0, None)
+
+                    elif header == REQUEST.SAVE:
+
+                        if label not in LABEL_2_ID:
+                            continue
+
+                        device_id = LABEL_2_ID[label]
+                        response = data[3:]
+                        logging.debug('\tsave \'%s\'', response)
+
+                        try:
+                            t = (device_id, response, )
+                            cursor.execute('INSERT INTO logs (client_id, response) VALUES (?, ?);', t)
+                        except:
+                            logging.error('error while logging data')
 
                     elif header == REQUEST.COMMAND:
 

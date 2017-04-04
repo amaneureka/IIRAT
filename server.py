@@ -2,7 +2,7 @@
 # @Author: amaneureka
 # @Date:   2017-04-01 16:07:30
 # @Last Modified by:   amaneureka
-# @Last Modified time: 2017-04-04 18:19:00
+# @Last Modified time: 2017-04-04 18:34:59
 
 import sys
 import uuid
@@ -217,7 +217,7 @@ def start_server():
                     if sock in SOCKET_LIST and sock != ID_2_SOCKET[0]:
                         SOCKET_LIST.remove(sock)
                     logging.error(str(error))
-        sleep(0.1)
+        sleep(0.03)
 
     server_socket.close()
 

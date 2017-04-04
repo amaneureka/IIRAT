@@ -2,7 +2,7 @@
 # @Author: amaneureka
 # @Date:   2017-04-01 16:07:30
 # @Last Modified by:   amaneureka
-# @Last Modified time: 2017-04-04 11:11:28
+# @Last Modified time: 2017-04-04 18:19:00
 
 import sys
 import uuid
@@ -12,6 +12,7 @@ import logging
 import hashlib
 import configparser
 import sqlite3 as sql
+from time import sleep
 
 from enum import Enum
 class REQUEST(Enum):
@@ -51,10 +52,10 @@ def get_device_id_from_key(connection, key):
     cursor = connection.cursor()
 
     t = (key, )
-    row = cursor.execute('SELECT id FROM clients WHERE key=?', t)
+    row = cursor.execute('SELECT id FROM clients WHERE key=?', t).fetchone()
     if row is None:
         return None
-    return row.fetchone()[0]
+    return row[0]
 
 def setup_database(connection):
     cursor = connection.cursor()
@@ -200,18 +201,23 @@ def start_server():
                         request_id = int(data[3:7])
                         cmd = data[7:]
 
-                        if request_id in ID_2_SOCKET:
-                            ID_2_SOCKET[request_id].send(cmd)
+                        logging.debug('\t%s', cmd)
+
+                        if request_id not in ID_2_SOCKET:
+                            send_request(sock, REQUEST.INVALID)
+                            logging.debug('\tdevice not found')
+                            continue
+
+                        send_request(ID_2_SOCKET[request_id], REQUEST.COMMAND, cmd)
 
                     else:
-                        if sock in SOCKET_LIST:
-                            SOCKET_LIST.remove(sock)
                         raise ValueError('Invalid Header')
 
                 except Exception as error:
-                    if sock in SOCKET_LIST:
+                    if sock in SOCKET_LIST and sock != ID_2_SOCKET[0]:
                         SOCKET_LIST.remove(sock)
                     logging.error(str(error))
+        sleep(0.1)
 
     server_socket.close()
 

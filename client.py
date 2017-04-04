@@ -2,7 +2,7 @@
 # @Author: amaneureka
 # @Date:   2017-04-01 22:39:50
 # @Last Modified by:   amaneureka
-# @Last Modified time: 2017-04-01 23:10:46
+# @Last Modified time: 2017-04-04 15:31:47
 
 import sys
 import socket
@@ -47,7 +47,7 @@ def start_client():
 
             else:
 
-                msg = sys.stdin.readline()
+                msg = sys.stdin.readline().strip()
                 s.send(msg)
 
 if __name__ == '__main__':

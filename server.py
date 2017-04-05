@@ -2,7 +2,7 @@
 # @Author: amaneureka
 # @Date:   2017-04-01 16:07:30
 # @Last Modified by:   amaneureka
-# @Last Modified time: 2017-04-04 18:34:59
+# @Last Modified time: 2017-04-06 00:52:56
 
 import sys
 import uuid
@@ -189,9 +189,11 @@ def start_server():
 
                         try:
                             t = (device_id, response, )
+                            cursor = sql_connection.cursor()
                             cursor.execute('INSERT INTO logs (client_id, response) VALUES (?, ?);', t)
-                        except:
-                            logging.error('error while logging data')
+                            sql_connection.commit()
+                        except Exception as e:
+                            logging.error('error while logging data' + str(e))
 
                     elif header == REQUEST.COMMAND:
 

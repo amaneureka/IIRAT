@@ -2,7 +2,7 @@
 # @Author: amaneureka
 # @Date:   2017-04-01 16:07:30
 # @Last Modified by:   amaneureka
-# @Last Modified time: 2017-04-06 00:52:56
+# @Last Modified time: 2017-04-06 19:21:02
 
 import sys
 import uuid
@@ -29,10 +29,11 @@ class REQUEST(Enum):
     COMMAND     = 'CMD' # S2C : Execute Command
     RESPONSE    = 'RSP' # C2S : Response of Command
     SAVE        = 'SAV' # C2S : Save Response
+    ACKNOWLEDGE = 'ACK' # S2C : Response Recieved
 
 def get_request_header(data):
     try:
-        res = REQUEST(data[:3])
+        res = REQUEST(data)
     except:
         res = REQUEST.INVALID
     return res
@@ -102,6 +103,7 @@ def start_server():
     LABEL_2_ID = { }
     ID_2_SOCKET = { }
     SOCKET_LIST = []
+    SOCKET_PENDING_DATA = { }
 
     SOCKET_LIST.append(server_socket)
 
@@ -138,12 +140,30 @@ def start_server():
                 try:
 
                     data = sock.recv(BUFFER_SIZE)
-                    header = get_request_header(data)
+                    header = get_request_header(data[:3])
                     label = str(sock.getpeername())
 
                     logging.debug('[%s] requested \'%s\'', label, header.name)
 
-                    if header == REQUEST.REGISTER:
+                    if sock in SOCKET_PENDING_DATA and SOCKET_PENDING_DATA[sock] > 0:
+
+                        length = SOCKET_PENDING_DATA[sock] - len(data)
+
+                        if length < 0:
+                            raise ValueError('invalid response size')
+
+                        SOCKET_PENDING_DATA[sock] = length
+
+                        try:
+
+                            ID_2_SOCKET[0].send(data)
+                            send_request(sock, REQUEST.ACKNOWLEDGE)
+                        except:
+                            if 0 in ID_2_SOCKET[0]:
+                                ID_2_SOCKET[0].close()
+                                ID_2_SOCKET.pop(0, None)
+
+                    elif header == REQUEST.REGISTER:
 
                         key = str(uuid.uuid4())
                         register_new_device(sql_connection, key)
@@ -172,7 +192,17 @@ def start_server():
                             continue
 
                         try:
-                            ID_2_SOCKET[0].send(data[3:])
+                            length = int(data[3:10]) - len(data)
+
+                            logging.debug('\tlength \'%d\'', length)
+
+                            if length < 0:
+                                raise ValueError('invalid response size')
+
+                            SOCKET_PENDING_DATA[sock] = length
+
+                            ID_2_SOCKET[0].send(data)
+                            send_request(sock, REQUEST.ACKNOWLEDGE)
                         except:
                             if 0 in ID_2_SOCKET[0]:
                                 ID_2_SOCKET[0].close()
@@ -213,11 +243,13 @@ def start_server():
                         send_request(ID_2_SOCKET[request_id], REQUEST.COMMAND, cmd)
 
                     else:
-                        raise ValueError('Invalid Header')
+                        raise ValueError('Invalid Header \'' + str(data + '\''))
 
                 except Exception as error:
-                    if sock in SOCKET_LIST and sock != ID_2_SOCKET[0]:
+                    if sock in SOCKET_LIST:
                         SOCKET_LIST.remove(sock)
+                        LABEL_2_ID.pop(label, None)
+                        SOCKET_PENDING_DATA.pop(sock, None)
                     logging.error(str(error))
         sleep(0.03)
 

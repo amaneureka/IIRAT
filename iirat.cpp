@@ -2,7 +2,7 @@
 * @Author: amaneureka
 * @Date:   2017-04-02 03:33:49
 * @Last Modified by:   amaneureka
-* @Last Modified time: 2017-04-08 10:08:01
+* @Last Modified time: 2017-04-10 04:53:06
 */
 
 #include <vector>
@@ -362,7 +362,7 @@ int main(int argc, char *argv[])
     addr.sin_family = AF_INET;
     addr.sin_port = htons(9009);
 
-    if (inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr) <= 0)
+    if (inet_pton(AF_INET, argv[1], &addr.sin_addr) <= 0)
     {
         printf("address resolve failed\n");
         exit(0);
@@ -464,6 +464,7 @@ int main(int argc, char *argv[])
 
                         cmdargs.socket = sock;
                         cmdargs.cmd = cmd.substr(7);
+                        pthread_mutex_unlock(&mutex_socket);
 
                         if (req == "SSCR")
                             /* get screenshot */

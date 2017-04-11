@@ -2,7 +2,7 @@
 # @Author: amaneureka
 # @Date:   2017-04-01 16:07:30
 # @Last Modified by:   amaneureka
-# @Last Modified time: 2017-04-06 19:21:02
+# @Last Modified time: 2017-04-08 21:58:52
 
 import sys
 import uuid
@@ -30,6 +30,8 @@ class REQUEST(Enum):
     RESPONSE    = 'RSP' # C2S : Response of Command
     SAVE        = 'SAV' # C2S : Save Response
     ACKNOWLEDGE = 'ACK' # S2C : Response Recieved
+    PING        = 'PNG' # C2S : Ping
+    PONG        = 'POG' # S2C : Pong
 
 def get_request_header(data):
     try:
@@ -185,6 +187,14 @@ def start_server():
                         LABEL_2_ID[label] = device_id
                         ID_2_SOCKET[device_id] = sock
                         send_request(sock, REQUEST.HELLO)
+
+                    elif header == REQUEST.PING:
+
+                        if label not in LABEL_2_ID or LABEL_2_ID[label] != 0:
+                            continue
+
+                        for key in ID_2_SOCKET:
+                            send_request(sock, REQUEST.PONG, str(key))
 
                     elif header == REQUEST.RESPONSE:
 

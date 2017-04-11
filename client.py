@@ -2,7 +2,7 @@
 # @Author: amaneureka
 # @Date:   2017-04-01 22:39:50
 # @Last Modified by:   amaneureka
-# @Last Modified time: 2017-04-08 10:10:23
+# @Last Modified time: 2017-04-11 21:52:58
 
 import sys
 import socket
@@ -42,22 +42,7 @@ def start_client():
                     print '\ndisconnected from the server'
                     return
 
-                if data[:3] == 'RSP':
-
-                    #if data[3:5] == 0x0060:
-                        length = int(data[3:10])
-                        with open('screen.jpg', 'w') as f:
-                            f.write(data[10:])
-
-                    #else:
-                    #    sys.stdout.write(data[3:])
-                else:
-                    if length > 0:
-                        length -= len(data)
-                        with open('screen.jpg', 'a') as f:
-                            f.write(data)
-                    else:
-                        sys.stdout.write(data)
+                sys.stdout.write(data)
 
                 sys.stdout.flush()
 

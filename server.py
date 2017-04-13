@@ -2,7 +2,7 @@
 # @Author: amaneureka
 # @Date:   2017-04-01 16:07:30
 # @Last Modified by:   amaneureka
-# @Last Modified time: 2017-04-13 17:31:00
+# @Last Modified time: 2017-04-13 18:20:51
 
 import sys
 import uuid
@@ -199,7 +199,8 @@ def start_server():
                             continue
 
                         for key in ID_2_SOCKET:
-                            send_request(sock, REQUEST.PONG, str(key) + '\n')
+                            if ID_2_SOCKET[key] in SOCKET_LIST:
+                                send_request(sock, REQUEST.PONG, str(key) + '\n')
 
                     elif header == REQUEST.RESPONSE:
 

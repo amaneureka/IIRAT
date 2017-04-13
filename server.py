@@ -2,7 +2,7 @@
 # @Author: amaneureka
 # @Date:   2017-04-01 16:07:30
 # @Last Modified by:   amaneureka
-# @Last Modified time: 2017-04-08 21:58:52
+# @Last Modified time: 2017-04-13 17:31:00
 
 import sys
 import uuid
@@ -131,6 +131,11 @@ def start_server():
                     send_request(sockfd, REQUEST.IDENTIFY)
                     SOCKET_LIST.append(sockfd)
 
+                    try:
+                        send_request(ID_2_SOCKET[0], REQUEST.PONG, '\'%s:%s\' Joined!\n' % addr)
+                    except:
+                        pass
+
                 except:
 
                     logging.info('[%s:%s] disconnected')
@@ -194,7 +199,7 @@ def start_server():
                             continue
 
                         for key in ID_2_SOCKET:
-                            send_request(sock, REQUEST.PONG, str(key))
+                            send_request(sock, REQUEST.PONG, str(key) + '\n')
 
                     elif header == REQUEST.RESPONSE:
 
@@ -258,10 +263,9 @@ def start_server():
                 except Exception as error:
                     if sock in SOCKET_LIST:
                         SOCKET_LIST.remove(sock)
-                        LABEL_2_ID.pop(label, None)
                         SOCKET_PENDING_DATA.pop(sock, None)
                     logging.error(str(error))
-        sleep(0.03)
+        sleep(0.01)
 
     server_socket.close()
 

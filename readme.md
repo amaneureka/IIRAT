@@ -1,15 +1,18 @@
 # IIRAT
-An application that will let you control your smart devices from remote. Currently supported only for windows (xp or later) OS.
+An application that will let you control your smart devices from remote. Currently supported only on windows (xp or later) OS.
 
 #### Supported Platforms
 - **Windows**
 - **Linux (_Coming Soon_)**
 
-#### What is exact the meaning of "control your smart devices" ?
+#### What is the exact meaning of "control your smart devices" ?
 - **shell access**
 - **screen capture**
 - **keyboard hook**
 - **filesystem**
+
+#### Inspiration
+One of my friend challenged me to create such an application.
 
 #### Is it reliable?
 **Yes!**, IIRAT has it's own complete bundle of server and client code. It does not rely on any 3rd party software. Each device register itself on server for the first time it gets connected. And from their onwards it uses it's own UID to send and recieve messages.
@@ -34,7 +37,7 @@ Use Client.py and connect with admin UID. only Admin has permissions to send req
 > **```CMD<device_id><type><command>```**
 >    - device_id : IIRAT device_id
 >    - type: ```SSCR``` for screenshot and ```EXEC``` for shell command.
->    - command : Any shell command if type if ```EXEC```.
+>    - command : Any shell command if type if ```EXEC```
 
 #### Screenshot
 - Server
@@ -45,5 +48,8 @@ Use Client.py and connect with admin UID. only Admin has permissions to send req
 
 ![Client](http://i.imgur.com/qzOyqvV.png)
 
+#### How can I contribute?
+Feel free to ping me on email.
+
 #### License
-&copy; Aman Priyadarshi
+&copy; [Aman Priyadarshi](https://twitter.com/amaneureka)

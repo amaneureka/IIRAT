@@ -2,11 +2,12 @@
 # @Author: amaneureka
 # @Date:   2017-04-01 22:39:50
 # @Last Modified by:   amaneureka
-# @Last Modified time: 2017-04-14 03:54:19
+# @Last Modified time: 2017-04-16 11:07:24
 
 import sys
 import socket
 import select
+import time
 import configparser
 
 def start_client():
@@ -55,7 +56,7 @@ def start_client():
 
                 msg = sys.stdin.readline().strip()
                 if msg[:2] == 'PF':
-                    output = open('a.jpg', 'w')
+                    output = open('data/scr_%s.jpg' % str(time.strftime("%Y%m%d-%H%M%S")), 'w')
                 elif msg[:2] == 'SF':
                     output = sys.stdout
                 else:

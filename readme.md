@@ -12,7 +12,7 @@ An application that will let you control your smart devices from remote. Current
 - **filesystem**
 
 #### Inspiration
-One of my friend challenged me to create such an application.
+One of my friend challenged me to create such an application. And Yes I was able to do that!
 
 #### Is it reliable?
 **Yes!**, IIRAT has it's own complete bundle of server and client code. It does not rely on any 3rd party software. Each device register itself on server for the first time it gets connected. And from their onwards it uses it's own UID to send and recieve messages.
@@ -50,6 +50,9 @@ Use Client.py and connect with admin UID. only Admin has permissions to send req
 
 #### How can I contribute?
 Feel free to ping me on email.
+
+#### Disclaimer
+This application should be used for educational purpose, Any actions or activity using this tool is solely your responsibility. The misuse of the application can result in criminal charges brought against the persons in question. I will not be held responsible in the event any criminal charges be brought against any individuals misusing the application to break the law.
 
 #### License
 &copy; [Aman Priyadarshi](https://twitter.com/amaneureka)

